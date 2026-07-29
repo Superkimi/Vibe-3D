@@ -51,7 +51,8 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
     setDraft("");
     setRunning(true);
     try {
-      const response = await fetch("/api/ai", {
+      const basePath = process.env.NEXT_PUBLIC_VIBE_3D_BASE_PATH || "";
+      const response = await fetch(`${basePath}/api/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
