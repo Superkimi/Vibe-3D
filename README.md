@@ -2,6 +2,8 @@
 
 Vibe 3D is a schema-first, AI-native 3D modeling studio for the browser. A scene can be edited from the canvas, the parameter inspector, live JSON, or natural-language conversation. Every path writes to the same validated `VibeScene` document.
 
+**Live product:** [aihubhub.com/vibe-3d](https://aihubhub.com/vibe-3d)
+
 ## Product surface
 
 - Browser-native Three.js viewport with orbit and transform controls
