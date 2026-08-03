@@ -2,6 +2,7 @@
 
 import { Cube, Lock, Trash } from "@phosphor-icons/react";
 import type { GeometrySpec, MaterialSpec, Vector3Tuple } from "@/lib/scene-schema";
+import { getGeometryDefinition, getNodeDefinition } from "@/lib/node-definitions";
 import { useEditor } from "./EditorContext";
 
 function NumberField({ label, value, onChange, step = 0.01, min, max }: {
@@ -47,45 +48,32 @@ function VectorFields({ label, value, onChange, step = 0.01 }: {
 
 function GeometryFields({ geometry, onChange }: { geometry: GeometrySpec; onChange(value: GeometrySpec): void }) {
   const { t } = useEditor();
+  const definition = getGeometryDefinition(geometry.kind);
   const update = (key: string, value: number | boolean) => onChange({ ...geometry, [key]: value } as GeometrySpec);
   return (
     <div className="field-grid">
-      {geometry.kind === "box" && <>
-        <NumberField label={t("inspector.width")} value={geometry.width} onChange={(value) => update("width", value)} min={0.01} />
-        <NumberField label={t("inspector.height")} value={geometry.height} onChange={(value) => update("height", value)} min={0.01} />
-        <NumberField label={t("inspector.depth")} value={geometry.depth} onChange={(value) => update("depth", value)} min={0.01} />
-        <NumberField label={t("inspector.bevel")} value={geometry.bevel} onChange={(value) => update("bevel", value)} min={0} max={1} />
-      </>}
-      {geometry.kind === "sphere" && <>
-        <NumberField label={t("inspector.radius")} value={geometry.radius} onChange={(value) => update("radius", value)} min={0.01} />
-        <NumberField label={t("inspector.widthSegments")} value={geometry.widthSegments} onChange={(value) => update("widthSegments", Math.round(value))} step={1} min={8} max={128} />
-        <NumberField label={t("inspector.heightSegments")} value={geometry.heightSegments} onChange={(value) => update("heightSegments", Math.round(value))} step={1} min={6} max={128} />
-      </>}
-      {geometry.kind === "cylinder" && <>
-        <NumberField label={t("inspector.radiusTop")} value={geometry.radiusTop} onChange={(value) => update("radiusTop", value)} min={0} />
-        <NumberField label={t("inspector.radiusBottom")} value={geometry.radiusBottom} onChange={(value) => update("radiusBottom", value)} min={0.01} />
-        <NumberField label={t("inspector.height")} value={geometry.height} onChange={(value) => update("height", value)} min={0.01} />
-        <NumberField label={t("inspector.radialSegments")} value={geometry.radialSegments} onChange={(value) => update("radialSegments", Math.round(value))} step={1} min={3} max={128} />
-      </>}
-      {geometry.kind === "cone" && <>
-        <NumberField label={t("inspector.radius")} value={geometry.radius} onChange={(value) => update("radius", value)} min={0.01} />
-        <NumberField label={t("inspector.height")} value={geometry.height} onChange={(value) => update("height", value)} min={0.01} />
-        <NumberField label={t("inspector.radialSegments")} value={geometry.radialSegments} onChange={(value) => update("radialSegments", Math.round(value))} step={1} min={3} max={128} />
-      </>}
-      {geometry.kind === "torus" && <>
-        <NumberField label={t("inspector.mainRadius")} value={geometry.radius} onChange={(value) => update("radius", value)} min={0.01} />
-        <NumberField label={t("inspector.tubeRadius")} value={geometry.tube} onChange={(value) => update("tube", value)} min={0.005} />
-        <NumberField label={t("inspector.tubularSegments")} value={geometry.tubularSegments} onChange={(value) => update("tubularSegments", Math.round(value))} step={1} min={8} max={256} />
-      </>}
-      {geometry.kind === "capsule" && <>
-        <NumberField label={t("inspector.radius")} value={geometry.radius} onChange={(value) => update("radius", value)} min={0.01} />
-        <NumberField label={t("inspector.length")} value={geometry.length} onChange={(value) => update("length", value)} min={0.01} />
-        <NumberField label={t("inspector.radialSegments")} value={geometry.radialSegments} onChange={(value) => update("radialSegments", Math.round(value))} step={1} min={3} max={64} />
-      </>}
-      {geometry.kind === "plane" && <>
-        <NumberField label={t("inspector.width")} value={geometry.width} onChange={(value) => update("width", value)} min={0.01} />
-        <NumberField label={t("inspector.height")} value={geometry.height} onChange={(value) => update("height", value)} min={0.01} />
-      </>}
+      {definition.fields.map((field) => {
+        const value = geometry[field.key as keyof GeometrySpec];
+        if (field.kind === "boolean") {
+          return (
+            <label className="geometry-toggle" key={field.key}>
+              <input type="checkbox" checked={Boolean(value)} onChange={(event) => update(field.key, event.target.checked)} />
+              <span>{t(field.labelKey)}</span>
+            </label>
+          );
+        }
+        return (
+          <NumberField
+            key={field.key}
+            label={t(field.labelKey)}
+            value={typeof value === "number" ? value : 0}
+            onChange={(next) => update(field.key, field.integer ? Math.round(next) : next)}
+            step={field.step ?? 0.01}
+            min={field.min}
+            max={field.max}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -119,6 +107,7 @@ export function InspectorPanel() {
     return <div className="empty-panel inspector-empty"><Cube /><p>{t("inspector.selectNode")}</p><span>{t("inspector.selectNodeCopy")}</span></div>;
   }
   const node = selectedNode;
+  const definition = getNodeDefinition(node.type);
   return (
     <div className="inspector">
       <section>
@@ -126,7 +115,7 @@ export function InspectorPanel() {
           <input value={node.name} onChange={(event) => patchNode(node.id, { name: event.target.value || node.name })} aria-label={t("inspector.nodeName")} />
           <button type="button" className={node.locked ? "is-active" : ""} onClick={() => patchNode(node.id, { locked: !node.locked })} title={node.locked ? t("inspector.unlock") : t("inspector.lock")}><Lock weight={node.locked ? "fill" : "regular"} /></button>
         </div>
-        <p className="node-meta"><code>{node.id}</code><span>{node.type}</span><span>{node.fidelity}</span></p>
+        <p className="node-meta"><code>node:{node.id}</code><span>{t(definition.labelKey)}</span><span>{node.fidelity}</span></p>
       </section>
       <section>
         <h3>{t("inspector.transform")}</h3>

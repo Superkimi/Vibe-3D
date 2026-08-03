@@ -11,7 +11,7 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-function assertSceneIntegrity(scene: VibeScene) {
+export function assertSceneIntegrity(scene: VibeScene) {
   const ids = new Set(scene.nodes.map((node) => node.id));
   if (ids.size !== scene.nodes.length) throw new Error("场景中存在重复节点 ID");
   for (const node of scene.nodes) {

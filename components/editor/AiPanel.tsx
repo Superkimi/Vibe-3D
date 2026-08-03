@@ -8,10 +8,13 @@ import {
   MagicWand,
   Sparkle,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
 import { buildAiSceneContext } from "@/lib/ai-system-prompt";
-import { aiResponseSchema, type AiSceneResponse } from "@/lib/scene-schema";
+import { aiResultSchema, type AiResult, type VibeScene } from "@/lib/scene-schema";
 import { applySceneOperations } from "@/lib/scene-operations";
+import { diffScenes, type SceneDiff } from "@/lib/scene-diff";
+import { evaluateSceneQuality, repairScene } from "@/lib/scene-quality";
 import { useEditor } from "./EditorContext";
 import type { ModelConfig } from "./ModelSettings";
 
@@ -22,6 +25,19 @@ interface ChatMessage {
   summary?: string;
   rationale?: string[];
   error?: boolean;
+}
+
+type PendingChange = {
+  baseUpdatedAt: string;
+  scene: VibeScene;
+  diff: SceneDiff;
+  quality: ReturnType<typeof evaluateSceneQuality>;
+  result: AiResult;
+  repairCount: number;
+};
+
+function qualityLabel(status: PendingChange["quality"]["status"], t: (key: string, values?: Record<string, string | number>) => string) {
+  return t(`ai.quality.${status}`);
 }
 
 export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpenSettings(): void }) {
@@ -39,6 +55,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
   }]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
+  const [pending, setPending] = useState<PendingChange | null>(null);
   const configured = Boolean(config.model && (config.apiKey || config.baseUrl.includes("localhost")));
   const recent = useMemo(() => messages.filter((message) => message.id !== "welcome").slice(-12), [messages]);
 
@@ -63,14 +80,31 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
         body: JSON.stringify({
           messages: [...recent, userMessage].map(({ role, content: messageContent }) => ({ role, content: messageContent })),
           context: buildAiSceneContext(scene, selectedNodeId),
+          scene,
           locale,
           config,
         }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || t("ai.requestFailed"));
-      const result: AiSceneResponse = aiResponseSchema.parse(payload);
-      updateScene(applySceneOperations(scene, result.operations));
+      const result: AiResult = aiResultSchema.parse(payload);
+      const operations = [...result.operations, ...result.repairOperations];
+      let previewScene = applySceneOperations(scene, operations);
+      const localRepair = repairScene(previewScene);
+      if (localRepair.operations.length) {
+        previewScene = localRepair.scene;
+      }
+      const quality = evaluateSceneQuality(previewScene);
+      quality.repaired = operations.length > result.operations.length || localRepair.operations.length > 0;
+      const diff = diffScenes(scene, previewScene);
+      setPending({
+        baseUpdatedAt: scene.updatedAt,
+        scene: previewScene,
+        diff,
+        quality,
+        result,
+        repairCount: result.repairOperations.length + localRepair.operations.length,
+      });
       setMessages((current) => [...current, {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -88,6 +122,38 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
     } finally {
       setRunning(false);
     }
+  }
+
+  function discardPreview() {
+    setPending(null);
+    setMessages((current) => [...current, {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: t("ai.previewDiscarded"),
+    }]);
+  }
+
+  function applyPreview() {
+    if (!pending) return;
+    if (scene.updatedAt !== pending.baseUpdatedAt) {
+      setPending(null);
+      setMessages((current) => [...current, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: t("ai.previewStale"),
+        error: true,
+      }]);
+      return;
+    }
+    if (pending.quality.status === "fail") return;
+    updateScene(pending.scene);
+    setPending(null);
+    setMessages((current) => [...current, {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: t("ai.previewApplied"),
+      summary: t("ai.previewAppliedSummary", { count: pending.diff.changedNodeCount }),
+    }]);
   }
 
   return (
@@ -117,6 +183,39 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
           </article>
         )}
       </div>
+      {pending && (
+        <section className="ai-preview-card" aria-label={t("ai.previewTitle")}>
+          <header>
+            <div><MagicWand /><strong>{t("ai.previewTitle")}</strong></div>
+            <span className={`quality-badge is-${pending.quality.status}`}>{qualityLabel(pending.quality.status, t)} · {pending.quality.score}</span>
+          </header>
+          <p className="ai-preview-copy">{t("ai.previewCopy", { count: pending.diff.changedNodeCount })}</p>
+          <div className="diff-summary">
+            <span className="is-added">+{pending.diff.added} {t("ai.diffAdded")}</span>
+            <span className="is-updated">~{pending.diff.updated} {t("ai.diffUpdated")}</span>
+            <span className="is-removed">-{pending.diff.removed} {t("ai.diffRemoved")}</span>
+          </div>
+          <ul className="diff-list">
+            {pending.diff.entries.slice(0, 6).map((entry) => (
+              <li key={`${entry.kind}-${entry.ref}`}>
+                <span className={`diff-marker is-${entry.kind}`}>{entry.kind === "added" ? "+" : entry.kind === "removed" ? "−" : "~"}</span>
+                <div><strong>{entry.name}</strong><code>{entry.ref}</code><small>{entry.changes[0]?.path || entry.path}</small></div>
+              </li>
+            ))}
+          </ul>
+          {pending.quality.issues.length > 0 && (
+            <div className="quality-issues">
+              <strong><WarningCircle /> {t("ai.qualityIssues", { count: pending.quality.issues.length })}</strong>
+              {pending.quality.issues.slice(0, 4).map((item) => <span key={`${item.code}-${item.nodeRefs.join("-")}`}>{t(`ai.qualityIssue.${item.code}`)}</span>)}
+            </div>
+          )}
+          {pending.repairCount > 0 && <div className="repair-note"><CheckCircle weight="fill" /> {t("ai.autoRepair", { count: pending.repairCount })}</div>}
+          <footer>
+            <button type="button" onClick={discardPreview}><X /> {t("ai.discardPreview")}</button>
+            <button type="button" className="primary-button" onClick={applyPreview} disabled={pending.quality.status === "fail"}><CheckCircle weight="fill" /> {t("ai.applyPreview")}</button>
+          </footer>
+        </section>
+      )}
       {messages.length === 1 && (
         <div className="prompt-chips">{starterPrompts.map((prompt) => <button type="button" key={prompt} onClick={() => void send(prompt)}>{prompt}</button>)}</div>
       )}
@@ -125,7 +224,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={configured ? t("ai.placeholder") : t("ai.setupPlaceholder")}
-          disabled={!configured || running}
+          disabled={!configured || running || Boolean(pending)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
@@ -133,7 +232,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
             }
           }}
         />
-        <div><span>{selectedNodeId ? t("ai.contextSelection", { id: selectedNodeId }) : t("ai.contextScene", { count: scene.nodes.length })}</span><button type="submit" disabled={!configured || running || !draft.trim()} aria-label={t("ai.send")}><ArrowUp weight="bold" /></button></div>
+        <div><span>{selectedNodeId ? t("ai.contextSelection", { id: `node:${selectedNodeId}` }) : t("ai.contextScene", { count: scene.nodes.length })}</span><button type="submit" disabled={!configured || running || Boolean(pending) || !draft.trim()} aria-label={t("ai.send")}><ArrowUp weight="bold" /></button></div>
       </form>
     </div>
   );
