@@ -7,6 +7,10 @@ import {
   normalizeScene,
 } from "../lib/scene-operations.ts";
 import { aiResponseSchema, sceneSchema } from "../lib/scene-schema.ts";
+import { getGeometryDefinition, getNodeDefinition } from "../lib/node-definitions.ts";
+import { buildSceneNodeReferences } from "../lib/scene-references.ts";
+import { diffScenes } from "../lib/scene-diff.ts";
+import { evaluateSceneQuality, repairScene } from "../lib/scene-quality.ts";
 
 test("starter scene satisfies the public VibeScene contract", () => {
   const scene = sceneSchema.parse(createStarterScene());
@@ -93,4 +97,59 @@ test("AI response contract requires validated scene operations", () => {
     rationale: [],
     operations: [],
   }));
+});
+
+test("node definitions expose shared capabilities and parameter metadata", () => {
+  assert.deepEqual(getNodeDefinition("mesh").capabilities, ["select", "transform", "patch", "duplicate", "delete"]);
+  assert.equal(getGeometryDefinition("cylinder").fields.some((field) => field.key === "openEnded"), true);
+  assert.equal(getGeometryDefinition("torus").fields.some((field) => field.key === "tubularSegments"), true);
+});
+
+test("stable node references preserve hierarchy paths for AI context", () => {
+  const scene = createStarterScene();
+  scene.nodes.push({
+    id: "assembly",
+    name: "Assembly",
+    type: "group",
+    parentId: null,
+    visible: true,
+    locked: false,
+    fidelity: "macro",
+    transform: { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+  });
+  scene.nodes[0].parentId = "assembly";
+  const refs = buildSceneNodeReferences(scene);
+  const body = refs.find((item) => item.nodeId === "body");
+  assert.equal(body?.ref, "node:body");
+  assert.equal(body?.parentRef, "node:assembly");
+  assert.equal(body?.path, "Assembly / Body shell");
+});
+
+test("scene diff explains stable node-level changes", () => {
+  const before = createStarterScene();
+  const after = applySceneOperations(before, [{
+    op: "patch_node",
+    nodeId: "body",
+    patch: { transform: { scale: [1.2, 1, 1] } },
+  }]);
+  const diff = diffScenes(before, after);
+  assert.equal(diff.updated, 1);
+  assert.equal(diff.entries[0].ref, "node:body");
+  assert.equal(diff.entries[0].changes[0].path, "transform.scale");
+});
+
+test("quality gate reports issues and applies safe automatic repairs", () => {
+  const scene = createStarterScene();
+  scene.nodes = scene.nodes.filter((node) => node.type !== "light");
+  scene.nodes[0].material.transparent = false;
+  scene.nodes[0].material.opacity = 0.72;
+  const report = evaluateSceneQuality(scene);
+  assert.equal(report.status, "review");
+  assert.ok(report.issues.some((item) => item.code === "no-authored-light"));
+  assert.ok(report.issues.some((item) => item.code === "transparent-material"));
+  const repaired = repairScene(scene);
+  assert.equal(repaired.operations.length, 2);
+  const repairedReport = evaluateSceneQuality(repaired.scene);
+  assert.equal(repairedReport.issues.some((item) => item.code === "transparent-material"), false);
+  assert.equal(repaired.scene.nodes.some((node) => node.type === "light"), true);
 });

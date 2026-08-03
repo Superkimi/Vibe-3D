@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { VIBE_3D_SYSTEM_PROMPT } from "@/lib/ai-system-prompt";
-import { aiResponseSchema } from "@/lib/scene-schema";
+import { aiResultSchema, aiResponseSchema, sceneSchema } from "@/lib/scene-schema";
+import { applySceneOperations } from "@/lib/scene-operations";
+import { evaluateSceneQuality, repairScene } from "@/lib/scene-quality";
 
 export const runtime = "edge";
 
@@ -10,6 +12,7 @@ const requestSchema = z.object({
     content: z.string().min(1).max(12000),
   })).min(1).max(30),
   context: z.string().min(1).max(240000),
+  scene: sceneSchema,
   locale: z.enum(["zh", "en"]).default("zh"),
   config: z.object({
     provider: z.enum(["openai-compatible", "anthropic"]).default("openai-compatible"),
@@ -125,7 +128,14 @@ export async function POST(request: Request) {
     const result = input.config.provider === "anthropic"
       ? await callAnthropic(input)
       : await callOpenAiCompatible(input);
-    return Response.json(result);
+    const candidate = applySceneOperations(input.scene, result.operations);
+    const repair = repairScene(candidate);
+    const quality = evaluateSceneQuality(repair.scene);
+    return Response.json(aiResultSchema.parse({
+      ...result,
+      quality: { ...quality, repaired: repair.operations.length > 0 },
+      repairOperations: repair.operations,
+    }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI 请求失败";
     return Response.json({ error: localizeErrorMessage(message, locale) }, { status: 422 });

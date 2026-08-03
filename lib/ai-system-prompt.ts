@@ -1,4 +1,6 @@
 import type { VibeScene } from "./scene-schema";
+import { describeNodeDefinitionsForAi } from "./node-definitions.ts";
+import { buildSceneNodeReferences, buildNodeReference } from "./scene-references.ts";
 
 export const VIBE_3D_SYSTEM_PROMPT = `
 你是 Vibe 3D 的资深 3D 造型师、技术美术和结构化场景编辑代理。你的唯一输出必须是一个 JSON 对象，不要输出 Markdown 代码块。
@@ -14,6 +16,9 @@ export const VIBE_3D_SYSTEM_PROMPT = `
 8. 用户要求高质量时，至少包含主轮廓、结构层和材质层；不要用大量微小 primitive 冒充细节。
 9. 如果信息不足，选择可编辑的合理近似，并在 rationale 里明确说明。
 10. 单次响应最多添加 40 个节点，优先少而准确。
+11. 节点引用以 context.nodeReferences 中的 ref 为准；修改现有节点时只使用真实存在的 nodeId。
+12. 不要为了表现细节堆叠大量高分段 primitive；优先控制几何预算并保持可编辑性。
+13. 质量检查由系统在 operation 应用前后执行。你需要在 rationale 中说明潜在穿模、透明材质、比例和灯光风险，不要声称未验证的制造或工程安全结论。
 
 VibeScene 契约：
 - scene: format="vibe-3d/1", version=1, id, name, unit, background, environment, nodes, quality, createdAt, updatedAt
@@ -53,7 +58,10 @@ export function buildAiSceneContext(scene: VibeScene, selectedNodeId?: string) {
     selection: {
       nodeId: selectedNodeId,
       node: selectedNode,
+      ref: selectedNode ? buildNodeReference(scene, selectedNode).ref : null,
     },
+    nodeReferences: buildSceneNodeReferences(scene),
+    nodeDefinitions: describeNodeDefinitionsForAi(),
     guardrails: {
       maxNodes: 400,
       rotationUnit: "degrees",

@@ -6,12 +6,16 @@ import { isLocale, translate } from "../lib/i18n.ts";
 const root = new URL("../", import.meta.url);
 
 test("studio exposes manual, AI, schema, preview, and export surfaces", async () => {
-  const [studio, toolbar, ai, viewport, code] = await Promise.all([
+  const [studio, toolbar, ai, viewport, code, definitions, quality, diff, benchmarks] = await Promise.all([
     readFile(new URL("components/editor/ModelingStudio.tsx", root), "utf8"),
     readFile(new URL("components/editor/TopToolbar.tsx", root), "utf8"),
     readFile(new URL("components/editor/AiPanel.tsx", root), "utf8"),
     readFile(new URL("components/editor/SceneViewport.tsx", root), "utf8"),
     readFile(new URL("components/editor/CodePanel.tsx", root), "utf8"),
+    readFile(new URL("lib/node-definitions.ts", root), "utf8"),
+    readFile(new URL("lib/scene-quality.ts", root), "utf8"),
+    readFile(new URL("lib/scene-diff.ts", root), "utf8"),
+    readFile(new URL("lib/scene-benchmarks.ts", root), "utf8"),
   ]);
   assert.match(studio, /<SceneTree \/>/);
   assert.match(studio, /<InspectorPanel \/>/);
@@ -20,10 +24,21 @@ test("studio exposes manual, AI, schema, preview, and export surfaces", async ()
   assert.match(toolbar, /"glb" \| "obj" \| "stl"/);
   assert.match(ai, /buildAiSceneContext/);
   assert.match(ai, /applySceneOperations/);
+  assert.match(ai, /ai-preview-card/);
+  assert.match(ai, /applyPreview/);
+  assert.match(ai, /diffScenes/);
+  assert.match(ai, /evaluateSceneQuality/);
   assert.match(viewport, /GLTFExporter/);
   assert.match(viewport, /OBJExporter/);
   assert.match(viewport, /STLExporter/);
   assert.match(code, /normalizeScene/);
+  assert.match(definitions, /NODE_DEFINITIONS/);
+  assert.match(definitions, /GEOMETRY_DEFINITIONS/);
+  assert.match(quality, /repairScene/);
+  assert.match(quality, /potential-overlap/);
+  assert.match(diff, /nodeRef/);
+  assert.match(benchmarks, /SCENE_BENCHMARKS/);
+  assert.match(benchmarks, /runSceneBenchmark/);
 });
 
 test("landing page contains product-specific copy and no starter preview marker", async () => {
@@ -47,6 +62,8 @@ test("AI proxy does not return or log raw credentials", async () => {
   assert.match(route, /AbortSignal\.timeout/);
   assert.doesNotMatch(route, /console\.(?:log|error).*apiKey/);
   assert.doesNotMatch(route, /Response\.json\([^)]*apiKey/);
+  assert.match(route, /repairScene/);
+  assert.match(route, /sceneSchema/);
 });
 
 test("editor exposes persisted Chinese and English localization", async () => {

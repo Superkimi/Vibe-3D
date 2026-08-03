@@ -149,6 +149,19 @@ export const sceneSchema = z.object({
   updatedAt: z.string().datetime(),
 }).strict();
 
+export const qualityIssueSchema = z.object({
+  code: z.string().min(1).max(80),
+  severity: z.enum(["error", "warning", "info"]),
+  nodeRefs: z.array(z.string().min(1).max(120)).max(20).default([]),
+}).strict();
+
+export const sceneQualityReportSchema = z.object({
+  status: z.enum(["pass", "review", "fail"]),
+  score: z.number().int().min(0).max(100),
+  issues: z.array(qualityIssueSchema).max(80),
+  repaired: z.boolean().default(false),
+}).strict();
+
 const transformPatchSchema = z.object({
   position: vector3Schema.optional(),
   rotation: vector3Schema.optional(),
@@ -212,6 +225,11 @@ export const aiResponseSchema = z.object({
   operations: z.array(sceneOperationSchema).min(1).max(80),
 }).strict();
 
+export const aiResultSchema = aiResponseSchema.extend({
+  quality: sceneQualityReportSchema,
+  repairOperations: z.array(sceneOperationSchema).max(20).default([]),
+}).strict();
+
 export type Vector3Tuple = z.infer<typeof vector3Schema>;
 export type Transform = z.infer<typeof transformSchema>;
 export type GeometrySpec = z.infer<typeof geometrySchema>;
@@ -221,3 +239,6 @@ export type SceneNode = z.infer<typeof sceneNodeSchema>;
 export type VibeScene = z.infer<typeof sceneSchema>;
 export type SceneOperation = z.infer<typeof sceneOperationSchema>;
 export type AiSceneResponse = z.infer<typeof aiResponseSchema>;
+export type QualityIssue = z.infer<typeof qualityIssueSchema>;
+export type SceneQualityReport = z.infer<typeof sceneQualityReportSchema>;
+export type AiResult = z.infer<typeof aiResultSchema>;
