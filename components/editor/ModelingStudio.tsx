@@ -7,6 +7,7 @@ import type { Transform, VibeScene } from "@/lib/scene-schema";
 import { applySceneOperations, createPrimitiveNode, normalizeScene } from "@/lib/scene-operations";
 import { createStarterScene } from "@/lib/starter-scene";
 import { downloadBlob, safeFilename } from "@/lib/download";
+import { DEFAULT_LOCALE, isLocale, LOCALE_STORAGE_KEY, localizeSceneError, translate, type Locale } from "@/lib/i18n";
 import { AiPanel } from "./AiPanel";
 import { CodePanel } from "./CodePanel";
 import { EditorProvider, type EditorContextValue, type TransformMode } from "./EditorContext";
@@ -22,6 +23,7 @@ const SESSION_KEY = "vibe-3d-session-api-key";
 
 export function ModelingStudio() {
   const [scene, setScene] = useState<VibeScene>(() => createStarterScene());
+  const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [transformMode, setTransformMode] = useState<TransformMode>("translate");
   const [rightPanel, setRightPanel] = useState<"design" | "ai">("ai");
@@ -31,7 +33,7 @@ export function ModelingStudio() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelConfig, setModelConfig] = useState<ModelConfig>(DEFAULT_MODEL_CONFIG);
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
-  const [saveState, setSaveState] = useState("已保存");
+  const [saveState, setSaveState] = useState("toolbar.saved");
   const pastRef = useRef<VibeScene[]>([]);
   const futureRef = useRef<VibeScene[]>([]);
   const hydratedRef = useRef(false);
@@ -40,13 +42,15 @@ export function ModelingStudio() {
 
   useEffect(() => {
     try {
+      const savedLocale = localStorage.getItem(LOCALE_STORAGE_KEY);
+      // Loading persisted browser preferences is the external synchronization owned by this effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (isLocale(savedLocale)) setLocale(savedLocale);
       const savedScene = localStorage.getItem(SCENE_STORAGE_KEY);
       if (savedScene) {
         const persisted = normalizeScene(JSON.parse(savedScene));
         const legacyStarter = persisted.id === "scene-product-study"
           && persisted.nodes.some((node) => node.id === "body" && node.type === "mesh" && node.geometry.kind === "capsule");
-        // Loading persisted browser state is the external synchronization owned by this effect.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setScene(legacyStarter ? createStarterScene() : persisted);
       }
       const savedConfig = localStorage.getItem(MODEL_STORAGE_KEY);
@@ -63,11 +67,17 @@ export function ModelingStudio() {
   }, []);
 
   useEffect(() => {
+    localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+    document.title = locale === "zh" ? "在线 3D 建模工作台 | Vibe 3D" : "Online 3D Modeling Studio | Vibe 3D";
+  }, [locale]);
+
+  useEffect(() => {
     if (!hydratedRef.current) return;
-    setSaveState("保存中");
+    setSaveState("toolbar.saving");
     const timer = window.setTimeout(() => {
       localStorage.setItem(SCENE_STORAGE_KEY, JSON.stringify(scene));
-      setSaveState("已保存");
+      setSaveState("toolbar.saved");
     }, 420);
     return () => window.clearTimeout(timer);
   }, [scene]);
@@ -135,7 +145,11 @@ export function ModelingStudio() {
   }, [deleteSelected, redo, selectedNodeId, undo]);
 
   const selectedNode = scene.nodes.find((node) => node.id === selectedNodeId);
+  const t = useCallback((key: string, values?: Record<string, string | number>) => translate(locale, key, values), [locale]);
   const context = useMemo<EditorContextValue>(() => ({
+    locale,
+    setLocale,
+    t,
     scene,
     selectedNodeId,
     selectedNode,
@@ -160,7 +174,7 @@ export function ModelingStudio() {
     addGroup: () => {
       const node = {
         id: `group-${nanoid(7)}`,
-        name: "新建组",
+        name: t("editor.newGroup"),
         type: "group" as const,
         parentId: null,
         visible: true,
@@ -176,15 +190,15 @@ export function ModelingStudio() {
       const original = scene.nodes.find((node) => node.id === selectedNodeId);
       if (!original) return;
       const newId = `${original.type}-${nanoid(7)}`;
-      commit((current) => applySceneOperations(current, [{ op: "duplicate_node", nodeId: selectedNodeId, newId, name: `${original.name} 副本` }]));
+      commit((current) => applySceneOperations(current, [{ op: "duplicate_node", nodeId: selectedNodeId, newId, name: `${original.name} ${t("editor.duplicateSuffix")}` }]));
       setSelectedNodeId(newId);
     },
     deleteSelected,
     undo,
     redo,
   }), [
-    commit, deleteSelected, gridVisible, historyState, patchNode, redo, scene,
-    selectedNode, selectedNodeId, transformMode, undo, wireframeAll,
+    commit, deleteSelected, gridVisible, historyState, locale, patchNode, redo, scene,
+    selectedNode, selectedNodeId, t, transformMode, undo, wireframeAll,
   ]);
 
   function saveModelConfig(config: ModelConfig) {
@@ -206,7 +220,9 @@ export function ModelingStudio() {
       commit(() => next);
       setSelectedNodeId(undefined);
     } catch (error) {
-      window.alert(error instanceof Error ? `无法导入：${error.message}` : "无法导入场景");
+      window.alert(error instanceof Error
+        ? t("alert.importFailed", { message: localizeSceneError(locale, error.message) })
+        : t("alert.importFailedGeneric"));
     } finally {
       if (importRef.current) importRef.current.value = "";
     }
@@ -216,7 +232,7 @@ export function ModelingStudio() {
     <EditorProvider value={context}>
       <main className={`studio-shell ${codeOpen ? "has-code" : ""}`}>
         <TopToolbar
-          saveState={saveState}
+          saveState={t(saveState)}
           codeOpen={codeOpen}
           onToggleCode={() => setCodeOpen((value) => !value)}
           onExport={(format) => void viewportRef.current?.exportModel(format)}
@@ -233,8 +249,8 @@ export function ModelingStudio() {
           </section>
           <aside className="right-panel">
             <div className="panel-tabs">
-              <button type="button" className={rightPanel === "design" ? "is-active" : ""} onClick={() => setRightPanel("design")}><SlidersHorizontal /> 参数</button>
-              <button type="button" className={rightPanel === "ai" ? "is-active" : ""} onClick={() => setRightPanel("ai")}><MagicWand /> AI</button>
+              <button type="button" className={rightPanel === "design" ? "is-active" : ""} onClick={() => setRightPanel("design")}><SlidersHorizontal /> {t("panel.parameters")}</button>
+              <button type="button" className={rightPanel === "ai" ? "is-active" : ""} onClick={() => setRightPanel("ai")}><MagicWand /> {t("panel.ai")}</button>
             </div>
             {rightPanel === "design" ? <InspectorPanel /> : <AiPanel config={modelConfig} onOpenSettings={() => setSettingsOpen(true)} />}
           </aside>

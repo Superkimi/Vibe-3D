@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { isLocale, translate } from "../lib/i18n.ts";
 
 const root = new URL("../", import.meta.url);
 
@@ -46,4 +47,31 @@ test("AI proxy does not return or log raw credentials", async () => {
   assert.match(route, /AbortSignal\.timeout/);
   assert.doesNotMatch(route, /console\.(?:log|error).*apiKey/);
   assert.doesNotMatch(route, /Response\.json\([^)]*apiKey/);
+});
+
+test("editor exposes persisted Chinese and English localization", async () => {
+  const [studio, toolbar, tree, inspector, ai, settings, route] = await Promise.all([
+    readFile(new URL("components/editor/ModelingStudio.tsx", root), "utf8"),
+    readFile(new URL("components/editor/TopToolbar.tsx", root), "utf8"),
+    readFile(new URL("components/editor/SceneTree.tsx", root), "utf8"),
+    readFile(new URL("components/editor/InspectorPanel.tsx", root), "utf8"),
+    readFile(new URL("components/editor/AiPanel.tsx", root), "utf8"),
+    readFile(new URL("components/editor/ModelSettings.tsx", root), "utf8"),
+    readFile(new URL("app/api/ai/route.ts", root), "utf8"),
+  ]);
+  assert.equal(isLocale("zh"), true);
+  assert.equal(isLocale("en"), true);
+  assert.equal(isLocale("fr"), false);
+  assert.equal(translate("zh", "toolbar.languageShort"), "EN");
+  assert.equal(translate("en", "toolbar.languageShort"), "中");
+  assert.equal(translate("en", "ai.contextScene", { count: 6 }), "Scene: 6 nodes");
+  assert.match(studio, /LOCALE_STORAGE_KEY/);
+  assert.match(studio, /setLocale/);
+  assert.match(toolbar, /language-button/);
+  assert.match(tree, /scene\.directory/);
+  assert.match(inspector, /inspector\.material/);
+  assert.match(ai, /locale/);
+  assert.match(settings, /ai\.connection/);
+  assert.match(route, /outputLanguageHint/);
+  assert.match(route, /localizeErrorMessage/);
 });

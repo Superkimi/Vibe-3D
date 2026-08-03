@@ -128,6 +128,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .studio-toolbar button.is-active { color: #e2d8f7; background: var(--s-active); }
 .studio-toolbar button:disabled { opacity: .28; cursor: default; }
 .studio-toolbar button svg { width: 16px; height: 16px; }
+.studio-toolbar .language-button { min-width: 46px; padding: 0 7px; color: #cbb9ef; background: rgba(102,80,164,.12); }
+.studio-toolbar .language-button span { font: 10px var(--font-code); letter-spacing: .04em; }
+.studio-toolbar .language-button:hover { color: #fff; background: var(--brand); }
 .export-trigger { color: #f5f2f8!important; background: var(--brand)!important; padding: 0 11px!important; }
 .export-trigger:hover { background: var(--brand-strong)!important; }
 .export-menu { position: relative; }

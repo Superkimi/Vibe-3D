@@ -2,10 +2,14 @@
 
 import { createContext, useContext } from "react";
 import type { SceneNode, Transform, VibeScene } from "@/lib/scene-schema";
+import type { Locale } from "@/lib/i18n";
 
 export type TransformMode = "translate" | "rotate" | "scale";
 
 export interface EditorContextValue {
+  locale: Locale;
+  setLocale(locale: Locale): void;
+  t(key: string, values?: Record<string, string | number>): string;
   scene: VibeScene;
   selectedNodeId?: string;
   selectedNode?: SceneNode;

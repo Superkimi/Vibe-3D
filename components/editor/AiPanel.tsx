@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUp,
   CheckCircle,
@@ -24,24 +24,29 @@ interface ChatMessage {
   error?: boolean;
 }
 
-const starterPrompts = [
-  "创建一个未来感桌面音箱，结构简洁但细节完整",
-  "把当前模型改成更紧凑的消费电子产品",
-  "增加一套专业摄影棚灯光",
-  "检查比例、穿模和材质，并做一轮质量优化",
-];
-
 export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpenSettings(): void }) {
-  const { scene, selectedNodeId, updateScene } = useEditor();
+  const { scene, selectedNodeId, updateScene, t, locale } = useEditor();
+  const starterPrompts = [
+    t("ai.promptSpeaker"),
+    t("ai.promptCompact"),
+    t("ai.promptLighting"),
+    t("ai.promptQuality"),
+  ];
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: "welcome",
     role: "assistant",
-    content: "告诉我想做什么模型，或直接描述当前模型需要怎样修改。我会先调整主轮廓，再补结构和材质。",
+    content: t("ai.welcome"),
   }]);
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
   const configured = Boolean(config.model && (config.apiKey || config.baseUrl.includes("localhost")));
   const recent = useMemo(() => messages.filter((message) => message.id !== "welcome").slice(-12), [messages]);
+
+  useEffect(() => {
+    setMessages((current) => current.length === 1 && current[0]?.id === "welcome"
+      ? [{ ...current[0], content: t("ai.welcome") }]
+      : current);
+  }, [t]);
 
   async function send(content = draft) {
     const prompt = content.trim();
@@ -58,11 +63,12 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
         body: JSON.stringify({
           messages: [...recent, userMessage].map(({ role, content: messageContent }) => ({ role, content: messageContent })),
           context: buildAiSceneContext(scene, selectedNodeId),
+          locale,
           config,
         }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "AI 请求失败");
+      if (!response.ok) throw new Error(payload.error || t("ai.requestFailed"));
       const result: AiSceneResponse = aiResponseSchema.parse(payload);
       updateScene(applySceneOperations(scene, result.operations));
       setMessages((current) => [...current, {
@@ -76,7 +82,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
       setMessages((current) => [...current, {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: error instanceof Error ? error.message : "这次修改没有完成，请重试。",
+        content: error instanceof Error ? error.message : t("ai.retry"),
         error: true,
       }]);
     } finally {
@@ -88,10 +94,10 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
     <div className="ai-panel">
       <div className="ai-panel-header">
         <div><Sparkle size={17} weight="fill" /><span>Vibe AI</span></div>
-        <button type="button" onClick={onOpenSettings} title="模型设置" aria-label="模型设置"><GearSix /></button>
+        <button type="button" onClick={onOpenSettings} title={t("ai.settings")} aria-label={t("ai.settings")}><GearSix /></button>
       </div>
       <button type="button" className="model-strip" onClick={onOpenSettings}>
-        <span>{config.model || "尚未配置模型"}</span><i>{configured ? "已连接" : "需要设置"}</i>
+        <span>{config.model || t("ai.notConfigured")}</span><i>{configured ? t("ai.connected") : t("ai.needsSetup")}</i>
       </button>
       <div className="chat-thread" aria-live="polite">
         {messages.map((message) => (
@@ -107,7 +113,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
         {running && (
           <article className="chat-message is-assistant">
             <span className="message-avatar"><MagicWand /></span>
-            <div className="thinking-line"><i /><i /><i /><span>正在拆解结构并校验 VibeScene</span></div>
+            <div className="thinking-line"><i /><i /><i /><span>{t("ai.running")}</span></div>
           </article>
         )}
       </div>
@@ -118,7 +124,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={configured ? "描述要创建或修改的 3D 模型" : "先配置模型和 API Key"}
+          placeholder={configured ? t("ai.placeholder") : t("ai.setupPlaceholder")}
           disabled={!configured || running}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
@@ -127,7 +133,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
             }
           }}
         />
-        <div><span>{selectedNodeId ? `上下文：${selectedNodeId}` : `场景：${scene.nodes.length} 个节点`}</span><button type="submit" disabled={!configured || running || !draft.trim()} aria-label="发送"><ArrowUp weight="bold" /></button></div>
+        <div><span>{selectedNodeId ? t("ai.contextSelection", { id: selectedNodeId }) : t("ai.contextScene", { count: scene.nodes.length })}</span><button type="submit" disabled={!configured || running || !draft.trim()} aria-label={t("ai.send")}><ArrowUp weight="bold" /></button></div>
       </form>
     </div>
   );

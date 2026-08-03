@@ -16,14 +16,14 @@ import {
 import type { SceneNode } from "@/lib/scene-schema";
 import { useEditor } from "./EditorContext";
 
-const primitiveLabels = {
-  box: "立方体",
-  sphere: "球体",
-  cylinder: "圆柱",
-  cone: "圆锥",
-  torus: "圆环",
-  capsule: "胶囊",
-  plane: "平面",
+const primitiveLabelKeys = {
+  box: "scene.box",
+  sphere: "scene.sphere",
+  cylinder: "scene.cylinder",
+  cone: "scene.cone",
+  torus: "scene.torus",
+  capsule: "scene.capsule",
+  plane: "scene.plane",
 } as const;
 
 function NodeIcon({ node }: { node: SceneNode }) {
@@ -33,7 +33,7 @@ function NodeIcon({ node }: { node: SceneNode }) {
 }
 
 export function SceneTree() {
-  const { scene, selectedNodeId, selectNode, patchNode, addPrimitive, addGroup } = useEditor();
+  const { scene, selectedNodeId, selectNode, patchNode, addPrimitive, addGroup, t } = useEditor();
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set(scene.nodes.filter((node) => node.type === "group").map((node) => node.id)));
   const [addOpen, setAddOpen] = useState(false);
@@ -58,7 +58,7 @@ export function SceneTree() {
           <button
             className="tree-caret"
             type="button"
-            aria-label={open ? "折叠" : "展开"}
+            aria-label={open ? t("scene.collapse") : t("scene.expand")}
             disabled={!hasChildren}
             onClick={(event) => {
               event.stopPropagation();
@@ -77,7 +77,7 @@ export function SceneTree() {
           <button
             className="tree-visibility"
             type="button"
-            aria-label={node.visible ? "隐藏节点" : "显示节点"}
+            aria-label={node.visible ? t("scene.hide") : t("scene.show")}
             onClick={(event) => {
               event.stopPropagation();
               patchNode(node.id, { visible: !node.visible });
@@ -96,26 +96,26 @@ export function SceneTree() {
   return (
     <aside className="scene-tree">
       <header className="panel-heading">
-        <div><b>场景目录</b><span>{scene.nodes.length}</span></div>
-        <button type="button" aria-label="添加节点" onClick={() => setAddOpen((value) => !value)}><Plus /></button>
+        <div><b>{t("scene.directory")}</b><span>{scene.nodes.length}</span></div>
+        <button type="button" aria-label={t("scene.addNode")} onClick={() => setAddOpen((value) => !value)}><Plus /></button>
       </header>
       {addOpen && (
         <div className="add-popover">
-          <button type="button" onClick={() => { addGroup(); setAddOpen(false); }}><Folder /> 组</button>
-          {(Object.keys(primitiveLabels) as Array<keyof typeof primitiveLabels>).map((kind) => (
+          <button type="button" onClick={() => { addGroup(); setAddOpen(false); }}><Folder /> {t("scene.group")}</button>
+          {(Object.keys(primitiveLabelKeys) as Array<keyof typeof primitiveLabelKeys>).map((kind) => (
             <button type="button" key={kind} onClick={() => { addPrimitive(kind); setAddOpen(false); }}>
-              <Cube /> {primitiveLabels[kind]}
+              <Cube /> {t(primitiveLabelKeys[kind])}
             </button>
           ))}
         </div>
       )}
       <label className="tree-search">
         <MagnifyingGlass />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索节点" aria-label="搜索场景节点" />
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("scene.search")} aria-label={t("scene.search")} />
       </label>
       <div className="tree-content">
         {roots.length ? roots.map((node) => renderNode(node)) : (
-          <div className="empty-panel"><Cube /><p>没有匹配的节点</p><span>换个关键词，或添加一个基础体。</span></div>
+          <div className="empty-panel"><Cube /><p>{t("scene.noMatch")}</p><span>{t("scene.noMatchCopy")}</span></div>
         )}
       </div>
       <footer className="tree-footer"><span>VibeScene</span><code>v1</code></footer>

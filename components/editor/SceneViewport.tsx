@@ -208,7 +208,7 @@ function SceneContent({ rootRef }: { rootRef: React.RefObject<THREE.Group | null
 }
 
 export const SceneViewport = forwardRef<SceneViewportHandle>(function SceneViewport(_, ref) {
-  const { scene, selectNode } = useEditor();
+  const { scene, selectNode, t } = useEditor();
   const rootRef = useRef<THREE.Group>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -269,7 +269,7 @@ export const SceneViewport = forwardRef<SceneViewportHandle>(function SceneViewp
         <SceneContent rootRef={rootRef} />
       </Canvas>
       <div className="viewport-status">
-        <span>Perspective</span><i /> <span>{scene.nodes.filter((node) => node.type === "mesh" && node.visible).length} meshes</span>
+        <span>{t("viewport.perspective")}</span><i /> <span>{t("viewport.meshes", { count: scene.nodes.filter((node) => node.type === "mesh" && node.visible).length })}</span>
       </div>
     </div>
   );
