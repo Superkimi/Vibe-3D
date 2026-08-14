@@ -3,6 +3,7 @@ import { VIBE_3D_SYSTEM_PROMPT } from "@/lib/ai-system-prompt";
 import { aiResultSchema, aiResponseSchema, sceneSchema } from "@/lib/scene-schema";
 import { applySceneOperations } from "@/lib/scene-operations";
 import { evaluateSceneQuality, repairScene } from "@/lib/scene-quality";
+import { buildSceneWorkflowPlan } from "@/lib/scene-workflow";
 
 export const runtime = "edge";
 
@@ -131,10 +132,12 @@ export async function POST(request: Request) {
     const candidate = applySceneOperations(input.scene, result.operations);
     const repair = repairScene(candidate);
     const quality = evaluateSceneQuality(repair.scene);
+    const workflowPlan = buildSceneWorkflowPlan(input.scene, result.operations, repair.operations, input.locale);
     return Response.json(aiResultSchema.parse({
       ...result,
       quality: { ...quality, repaired: repair.operations.length > 0 },
       repairOperations: repair.operations,
+      workflowPlan,
     }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI 请求失败";

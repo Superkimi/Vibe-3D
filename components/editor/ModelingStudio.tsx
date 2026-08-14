@@ -8,10 +8,14 @@ import { applySceneOperations, createPrimitiveNode, normalizeScene } from "@/lib
 import { createStarterScene } from "@/lib/starter-scene";
 import { downloadBlob, safeFilename } from "@/lib/download";
 import { DEFAULT_LOCALE, isLocale, LOCALE_STORAGE_KEY, localizeSceneError, translate, type Locale } from "@/lib/i18n";
+import { createSceneAssetRecord, parseSceneAssets, upsertSceneAsset, type SceneAssetRecord } from "@/lib/scene-assets";
+import { evaluateSceneQuality } from "@/lib/scene-quality";
 import { AiPanel } from "./AiPanel";
+import { AssetLibraryPanel } from "./AssetLibraryPanel";
 import { CodePanel } from "./CodePanel";
 import { EditorProvider, type EditorContextValue, type TransformMode } from "./EditorContext";
 import { InspectorPanel } from "./InspectorPanel";
+import { PipelinePanel } from "./PipelinePanel";
 import { DEFAULT_MODEL_CONFIG, ModelSettings, type ModelConfig } from "./ModelSettings";
 import { SceneTree } from "./SceneTree";
 import { SceneViewport, type SceneViewportHandle } from "./SceneViewport";
@@ -20,17 +24,20 @@ import { TopToolbar } from "./TopToolbar";
 const SCENE_STORAGE_KEY = "vibe-3d-scene-v2";
 const MODEL_STORAGE_KEY = "vibe-3d-model-config";
 const SESSION_KEY = "vibe-3d-session-api-key";
+const ASSET_STORAGE_KEY = "vibe-3d-assets-v1";
 
 export function ModelingStudio() {
   const [scene, setScene] = useState<VibeScene>(() => createStarterScene());
   const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
   const [selectedNodeId, setSelectedNodeId] = useState<string>();
   const [transformMode, setTransformMode] = useState<TransformMode>("translate");
-  const [rightPanel, setRightPanel] = useState<"design" | "ai">("ai");
+  const [rightPanel, setRightPanel] = useState<"design" | "ai" | "pipeline">("ai");
   const [gridVisible, setGridVisible] = useState(true);
   const [wireframeAll, setWireframeAll] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [assetsOpen, setAssetsOpen] = useState(false);
+  const [assets, setAssets] = useState<SceneAssetRecord[]>([]);
   const [modelConfig, setModelConfig] = useState<ModelConfig>(DEFAULT_MODEL_CONFIG);
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const [saveState, setSaveState] = useState("toolbar.saved");
@@ -59,6 +66,8 @@ export function ModelingStudio() {
         const sessionKey = sessionStorage.getItem(SESSION_KEY) || "";
         setModelConfig({ ...DEFAULT_MODEL_CONFIG, ...parsed, apiKey: parsed.apiKey || sessionKey });
       }
+      const savedAssets = localStorage.getItem(ASSET_STORAGE_KEY);
+      if (savedAssets) setAssets(parseSceneAssets(JSON.parse(savedAssets)));
     } catch {
       localStorage.removeItem(SCENE_STORAGE_KEY);
     } finally {
@@ -81,6 +90,11 @@ export function ModelingStudio() {
     }, 420);
     return () => window.clearTimeout(timer);
   }, [scene]);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    localStorage.setItem(ASSET_STORAGE_KEY, JSON.stringify(assets));
+  }, [assets]);
 
   const commit = useCallback((updater: (current: VibeScene) => VibeScene) => {
     setScene((current) => {
@@ -213,6 +227,27 @@ export function ModelingStudio() {
     }
   }
 
+  function saveSceneVersionFor(snapshot: VibeScene, prompt?: string) {
+    const quality = evaluateSceneQuality(snapshot);
+    const nextVersion = assets.filter((asset) => asset.sceneId === snapshot.id).reduce((max, asset) => Math.max(max, asset.version), 0) + 1;
+    const record = createSceneAssetRecord(snapshot, { version: nextVersion, locale, quality, model: modelConfig.model, prompt });
+    setAssets((current) => upsertSceneAsset(current, record));
+  }
+
+  function saveSceneVersion() {
+    saveSceneVersionFor(scene);
+  }
+
+  function restoreSceneVersion(asset: SceneAssetRecord) {
+    commit(() => asset.scene);
+    setSelectedNodeId(undefined);
+    setAssetsOpen(false);
+  }
+
+  function deleteSceneVersion(asset: SceneAssetRecord) {
+    setAssets((current) => current.filter((item) => item.id !== asset.id));
+  }
+
   async function importScene(file?: File) {
     if (!file) return;
     try {
@@ -238,6 +273,7 @@ export function ModelingStudio() {
           onExport={(format) => void viewportRef.current?.exportModel(format)}
           onCapture={() => viewportRef.current?.capturePng()}
           onImport={() => importRef.current?.click()}
+          onOpenAssets={() => setAssetsOpen(true)}
           onExportJson={() => downloadBlob(new Blob([JSON.stringify(scene, null, 2)], { type: "application/json" }), `${safeFilename(scene.name)}.vibe3d.json`)}
         />
         <input ref={importRef} type="file" accept=".json,.vibe3d" hidden onChange={(event) => void importScene(event.target.files?.[0])} />
@@ -251,12 +287,14 @@ export function ModelingStudio() {
             <div className="panel-tabs">
               <button type="button" className={rightPanel === "design" ? "is-active" : ""} onClick={() => setRightPanel("design")}><SlidersHorizontal /> {t("panel.parameters")}</button>
               <button type="button" className={rightPanel === "ai" ? "is-active" : ""} onClick={() => setRightPanel("ai")}><MagicWand /> {t("panel.ai")}</button>
+              <button type="button" className={rightPanel === "pipeline" ? "is-active" : ""} onClick={() => setRightPanel("pipeline")}><MagicWand /> {t("panel.pipeline")}</button>
             </div>
-            {rightPanel === "design" ? <InspectorPanel /> : <AiPanel config={modelConfig} onOpenSettings={() => setSettingsOpen(true)} />}
+            {rightPanel === "design" ? <InspectorPanel /> : rightPanel === "pipeline" ? <PipelinePanel /> : <AiPanel config={modelConfig} onOpenSettings={() => setSettingsOpen(true)} onSaveVersion={saveSceneVersionFor} />}
           </aside>
         </div>
       </main>
       {settingsOpen && <ModelSettings config={modelConfig} onSave={saveModelConfig} onClose={() => setSettingsOpen(false)} />}
+      {assetsOpen && <AssetLibraryPanel assets={assets} scene={scene} locale={locale} onSave={saveSceneVersion} onRestore={restoreSceneVersion} onDelete={deleteSceneVersion} onClose={() => setAssetsOpen(false)} />}
     </EditorProvider>
   );
 }

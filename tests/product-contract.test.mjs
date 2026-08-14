@@ -6,7 +6,7 @@ import { isLocale, translate } from "../lib/i18n.ts";
 const root = new URL("../", import.meta.url);
 
 test("studio exposes manual, AI, schema, preview, and export surfaces", async () => {
-  const [studio, toolbar, ai, viewport, code, definitions, quality, diff, benchmarks] = await Promise.all([
+  const [studio, toolbar, ai, viewport, code, definitions, quality, diff, benchmarks, workflow, assets, pipeline] = await Promise.all([
     readFile(new URL("components/editor/ModelingStudio.tsx", root), "utf8"),
     readFile(new URL("components/editor/TopToolbar.tsx", root), "utf8"),
     readFile(new URL("components/editor/AiPanel.tsx", root), "utf8"),
@@ -16,10 +16,15 @@ test("studio exposes manual, AI, schema, preview, and export surfaces", async ()
     readFile(new URL("lib/scene-quality.ts", root), "utf8"),
     readFile(new URL("lib/scene-diff.ts", root), "utf8"),
     readFile(new URL("lib/scene-benchmarks.ts", root), "utf8"),
+    readFile(new URL("lib/scene-workflow.ts", root), "utf8"),
+    readFile(new URL("lib/scene-assets.ts", root), "utf8"),
+    readFile(new URL("components/editor/PipelinePanel.tsx", root), "utf8"),
   ]);
   assert.match(studio, /<SceneTree \/>/);
   assert.match(studio, /<InspectorPanel \/>/);
   assert.match(studio, /<AiPanel /);
+  assert.match(studio, /<PipelinePanel \/>/);
+  assert.match(studio, /<AssetLibraryPanel /);
   assert.match(studio, /<CodePanel /);
   assert.match(toolbar, /"glb" \| "obj" \| "stl"/);
   assert.match(ai, /buildAiSceneContext/);
@@ -39,6 +44,10 @@ test("studio exposes manual, AI, schema, preview, and export surfaces", async ()
   assert.match(diff, /nodeRef/);
   assert.match(benchmarks, /SCENE_BENCHMARKS/);
   assert.match(benchmarks, /runSceneBenchmark/);
+  assert.match(workflow, /preflightSceneWorkflow/);
+  assert.match(workflow, /optimizeSceneGeometry/);
+  assert.match(assets, /sceneAssetRecordSchema/);
+  assert.match(pipeline, /repairScenePipeline/);
 });
 
 test("landing page contains product-specific copy and no starter preview marker", async () => {
@@ -64,10 +73,11 @@ test("AI proxy does not return or log raw credentials", async () => {
   assert.doesNotMatch(route, /Response\.json\([^)]*apiKey/);
   assert.match(route, /repairScene/);
   assert.match(route, /sceneSchema/);
+  assert.match(route, /buildSceneWorkflowPlan/);
 });
 
 test("editor exposes persisted Chinese and English localization", async () => {
-  const [studio, toolbar, tree, inspector, ai, settings, route] = await Promise.all([
+  const [studio, toolbar, tree, inspector, ai, settings, route, toolbarFile] = await Promise.all([
     readFile(new URL("components/editor/ModelingStudio.tsx", root), "utf8"),
     readFile(new URL("components/editor/TopToolbar.tsx", root), "utf8"),
     readFile(new URL("components/editor/SceneTree.tsx", root), "utf8"),
@@ -75,6 +85,7 @@ test("editor exposes persisted Chinese and English localization", async () => {
     readFile(new URL("components/editor/AiPanel.tsx", root), "utf8"),
     readFile(new URL("components/editor/ModelSettings.tsx", root), "utf8"),
     readFile(new URL("app/api/ai/route.ts", root), "utf8"),
+    readFile(new URL("components/editor/TopToolbar.tsx", root), "utf8"),
   ]);
   assert.equal(isLocale("zh"), true);
   assert.equal(isLocale("en"), true);
@@ -91,4 +102,5 @@ test("editor exposes persisted Chinese and English localization", async () => {
   assert.match(settings, /ai\.connection/);
   assert.match(route, /outputLanguageHint/);
   assert.match(route, /localizeErrorMessage/);
+  assert.match(toolbarFile, /onOpenAssets/);
 });
