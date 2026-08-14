@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   CheckCircle,
@@ -11,10 +11,11 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { buildAiSceneContext } from "@/lib/ai-system-prompt";
-import { aiResultSchema, type AiResult, type VibeScene } from "@/lib/scene-schema";
+import { aiResultSchema, type AiResult, type SceneWorkflowPlan, type VibeScene } from "@/lib/scene-schema";
 import { applySceneOperations } from "@/lib/scene-operations";
 import { diffScenes, type SceneDiff } from "@/lib/scene-diff";
 import { evaluateSceneQuality, repairScene } from "@/lib/scene-quality";
+import { buildSceneWorkflowPlan, preflightSceneWorkflow, type WorkflowPreflightResult } from "@/lib/scene-workflow";
 import { useEditor } from "./EditorContext";
 import type { ModelConfig } from "./ModelSettings";
 
@@ -34,13 +35,16 @@ type PendingChange = {
   quality: ReturnType<typeof evaluateSceneQuality>;
   result: AiResult;
   repairCount: number;
+  workflowPlan: SceneWorkflowPlan;
+  preflight: WorkflowPreflightResult;
+  prompt: string;
 };
 
 function qualityLabel(status: PendingChange["quality"]["status"], t: (key: string, values?: Record<string, string | number>) => string) {
   return t(`ai.quality.${status}`);
 }
 
-export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpenSettings(): void }) {
+export function AiPanel({ config, onOpenSettings, onSaveVersion }: { config: ModelConfig; onOpenSettings(): void; onSaveVersion?: (scene: VibeScene, prompt: string) => void }) {
   const { scene, selectedNodeId, updateScene, t, locale } = useEditor();
   const starterPrompts = [
     t("ai.promptSpeaker"),
@@ -56,6 +60,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
   const [draft, setDraft] = useState("");
   const [running, setRunning] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
   const configured = Boolean(config.model && (config.apiKey || config.baseUrl.includes("localhost")));
   const recent = useMemo(() => messages.filter((message) => message.id !== "welcome").slice(-12), [messages]);
 
@@ -72,11 +77,14 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
     setMessages((current) => [...current, userMessage]);
     setDraft("");
     setRunning(true);
+    const controller = new AbortController();
+    controllerRef.current = controller;
     try {
       const basePath = process.env.NEXT_PUBLIC_VIBE_3D_BASE_PATH || "";
       const response = await fetch(`${basePath}/api/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           messages: [...recent, userMessage].map(({ role, content: messageContent }) => ({ role, content: messageContent })),
           context: buildAiSceneContext(scene, selectedNodeId),
@@ -94,8 +102,11 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
       if (localRepair.operations.length) {
         previewScene = localRepair.scene;
       }
+      const allRepairOperations = [...result.repairOperations, ...localRepair.operations];
+      const workflowPlan = buildSceneWorkflowPlan(scene, result.operations, allRepairOperations, locale);
+      const preflight = preflightSceneWorkflow(workflowPlan, scene, [...result.operations, ...allRepairOperations]);
       const quality = evaluateSceneQuality(previewScene);
-      quality.repaired = operations.length > result.operations.length || localRepair.operations.length > 0;
+      quality.repaired = allRepairOperations.length > 0;
       const diff = diffScenes(scene, previewScene);
       setPending({
         baseUpdatedAt: scene.updatedAt,
@@ -103,7 +114,10 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
         diff,
         quality,
         result,
-        repairCount: result.repairOperations.length + localRepair.operations.length,
+        repairCount: allRepairOperations.length,
+        workflowPlan,
+        preflight,
+        prompt,
       });
       setMessages((current) => [...current, {
         id: crypto.randomUUID(),
@@ -113,6 +127,14 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
         rationale: result.rationale,
       }]);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setMessages((current) => [...current, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: t("ai.cancelled"),
+        }]);
+        return;
+      }
       setMessages((current) => [...current, {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -120,8 +142,13 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
         error: true,
       }]);
     } finally {
+      controllerRef.current = null;
       setRunning(false);
     }
+  }
+
+  function cancelRun() {
+    controllerRef.current?.abort();
   }
 
   function discardPreview() {
@@ -147,6 +174,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
     }
     if (pending.quality.status === "fail") return;
     updateScene(pending.scene);
+    onSaveVersion?.(pending.scene, pending.prompt);
     setPending(null);
     setMessages((current) => [...current, {
       id: crypto.randomUUID(),
@@ -179,7 +207,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
         {running && (
           <article className="chat-message is-assistant">
             <span className="message-avatar"><MagicWand /></span>
-            <div className="thinking-line"><i /><i /><i /><span>{t("ai.running")}</span></div>
+            <div className="thinking-line"><i /><i /><i /><span>{t("ai.running")}</span><button type="button" onClick={cancelRun}>{t("ai.cancelRun")}</button></div>
           </article>
         )}
       </div>
@@ -189,6 +217,24 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
             <div><MagicWand /><strong>{t("ai.previewTitle")}</strong></div>
             <span className={`quality-badge is-${pending.quality.status}`}>{qualityLabel(pending.quality.status, t)} · {pending.quality.score}</span>
           </header>
+          <div className="workflow-plan">
+            <div className="workflow-plan-heading"><strong>{t("ai.workflowPlan")}</strong><span>{pending.workflowPlan.steps.length} {t("ai.workflowSteps")}</span></div>
+            <ol>
+              {pending.workflowPlan.steps.map((step, index) => (
+                <li key={step.id}>
+                  <span className="workflow-step-index">{index + 1}</span>
+                  <div><strong>{step.label}</strong><small>{step.description}</small></div>
+                  <code>{step.operationCount}</code>
+                </li>
+              ))}
+            </ol>
+          </div>
+          {pending.preflight.issues.length > 0 && (
+            <div className="workflow-preflight">
+              <strong>{t("ai.preflightIssues", { count: pending.preflight.issues.length })}</strong>
+              {pending.preflight.issues.slice(0, 3).map((issue) => <span key={`${issue.code}-${issue.stepId ?? "plan"}`}>{issue.message}</span>)}
+            </div>
+          )}
           <p className="ai-preview-copy">{t("ai.previewCopy", { count: pending.diff.changedNodeCount })}</p>
           <div className="diff-summary">
             <span className="is-added">+{pending.diff.added} {t("ai.diffAdded")}</span>
@@ -212,7 +258,7 @@ export function AiPanel({ config, onOpenSettings }: { config: ModelConfig; onOpe
           {pending.repairCount > 0 && <div className="repair-note"><CheckCircle weight="fill" /> {t("ai.autoRepair", { count: pending.repairCount })}</div>}
           <footer>
             <button type="button" onClick={discardPreview}><X /> {t("ai.discardPreview")}</button>
-            <button type="button" className="primary-button" onClick={applyPreview} disabled={pending.quality.status === "fail"}><CheckCircle weight="fill" /> {t("ai.applyPreview")}</button>
+            <button type="button" className="primary-button" onClick={applyPreview} disabled={!pending.preflight.ok || pending.quality.status === "fail"}><CheckCircle weight="fill" /> {t("ai.applyPreview")}</button>
           </footer>
         </section>
       )}

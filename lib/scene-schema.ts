@@ -162,6 +162,23 @@ export const sceneQualityReportSchema = z.object({
   repaired: z.boolean().default(false),
 }).strict();
 
+export const sceneWorkflowStepSchema = z.object({
+  id,
+  kind: z.enum(["inspect", "generate", "edit", "repair", "optimize", "export"]),
+  label: z.string().min(1).max(120),
+  description: z.string().min(1).max(240),
+  nodeRefs: z.array(z.string().min(1).max(120)).max(40).default([]),
+  operationCount: z.number().int().min(0).max(80).default(0),
+}).strict();
+
+export const sceneWorkflowPlanSchema = z.object({
+  id,
+  title: z.string().min(1).max(160),
+  goal: z.string().min(1).max(240),
+  steps: z.array(sceneWorkflowStepSchema).min(1).max(12),
+  requiresConfirmation: z.boolean().default(true),
+}).strict();
+
 const transformPatchSchema = z.object({
   position: vector3Schema.optional(),
   rotation: vector3Schema.optional(),
@@ -228,6 +245,7 @@ export const aiResponseSchema = z.object({
 export const aiResultSchema = aiResponseSchema.extend({
   quality: sceneQualityReportSchema,
   repairOperations: z.array(sceneOperationSchema).max(20).default([]),
+  workflowPlan: sceneWorkflowPlanSchema,
 }).strict();
 
 export type Vector3Tuple = z.infer<typeof vector3Schema>;
@@ -241,4 +259,6 @@ export type SceneOperation = z.infer<typeof sceneOperationSchema>;
 export type AiSceneResponse = z.infer<typeof aiResponseSchema>;
 export type QualityIssue = z.infer<typeof qualityIssueSchema>;
 export type SceneQualityReport = z.infer<typeof sceneQualityReportSchema>;
+export type SceneWorkflowStep = z.infer<typeof sceneWorkflowStepSchema>;
+export type SceneWorkflowPlan = z.infer<typeof sceneWorkflowPlanSchema>;
 export type AiResult = z.infer<typeof aiResultSchema>;

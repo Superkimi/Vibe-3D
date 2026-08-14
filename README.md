@@ -11,6 +11,8 @@ Vibe 3D is a schema-first, AI-native 3D modeling studio for the browser. A scene
 - Numeric transforms, geometry parameters, PBR materials, and lighting controls
 - AI conversation using OpenAI-compatible or Anthropic Messages endpoints
 - Strict AI operation schema with integrity checks, preview/confirm, undo, redo, and local autosave
+- Typed AI workflow plans with preflight checks, cancelable runs, repair, and primitive geometry optimization
+- Restorable local asset versions with quality metadata and a dedicated pipeline workspace
 - Stable `node:<id>` references, explainable scene diffs, quality scoring, safe auto-repair, and deterministic bilingual prompt benchmarks
 - Live `VibeScene` JSON editor with round-trip validation
 - GLB, OBJ, STL, editable JSON, and PNG export
@@ -30,6 +32,8 @@ AI conversation ┘                              ├─> Three.js renderer
 The AI never mutates Three.js objects directly. It returns small operations such as `patch_node`, `add_node`, or `replace_scene`. `applySceneOperations()` validates IDs, parent references, hierarchy cycles, transforms, geometry limits, and material ranges before the renderer receives a new scene.
 
 Every AI response is shown as a preview first. The editor computes a stable-reference diff, runs the scene quality gate, and applies only safe deterministic repairs (for example, fixing an inconsistent transparent-material flag or adding a named key light). The change becomes one undoable history entry only after the user confirms it. `SCENE_BENCHMARKS` provides reproducible Chinese/English prompt fixtures for the macro silhouette, meso detail, stable-reference edit, and quality-repair paths.
+
+The workflow layer takes the most useful browser-safe ideas from Modly: an AI request is represented as a typed inspect → generate/edit → repair plan, checked by a preflight gate before confirmation, and then committed as a traceable scene operation. The pipeline workspace exposes scene statistics, repair actions, primitive-only triangle optimization, and a quality-aware preview. Each confirmed AI change can be saved as a local, versioned asset record and restored without leaving the editor.
 
 This is informed by the staged ideas in [img2threejs](https://github.com/img2threejs/img2threejs): establish the macro silhouette, add meso structure, finish with micro details, and keep every change traceable. Vibe 3D adapts that offline pipeline into an interactive browser editor.
 
@@ -62,9 +66,13 @@ The local app runs at `http://localhost:3000`.
 
 - `lib/scene-schema.ts`: VibeScene, node, geometry, material, and AI operation contracts
 - `lib/scene-operations.ts`: deterministic scene mutation and integrity gates
+- `lib/scene-workflow.ts`: typed workflow plans, preflight, repair, and geometry optimization
+- `lib/scene-assets.ts`: versioned local asset records and safe persistence parsing
 - `lib/ai-system-prompt.ts`: modeling discipline and structured response contract
 - `app/api/ai/route.ts`: provider adapter and response validation
 - `components/editor/SceneViewport.tsx`: Three.js renderer and exporters
+- `components/editor/PipelinePanel.tsx`: quality, repair, and optimization controls
+- `components/editor/AssetLibraryPanel.tsx`: local scene version browser and restore flow
 - `components/editor/ModelingStudio.tsx`: editor state, history, autosave, and import/export
 
 ## License

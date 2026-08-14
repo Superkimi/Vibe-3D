@@ -4,13 +4,13 @@ import Link from "next/link";
 import {
   ArrowCounterClockwise,
   ArrowClockwise,
+  Archive,
   BracketsCurly,
   Camera,
   CaretDown,
   Cube,
   DownloadSimple,
   DotsThree,
-  FolderOpen,
   Globe,
   GridFour,
   Hand,
@@ -28,6 +28,7 @@ export function TopToolbar({
   onExport,
   onCapture,
   onImport,
+  onOpenAssets,
   onExportJson,
 }: {
   saveState: string;
@@ -36,6 +37,7 @@ export function TopToolbar({
   onExport(format: "glb" | "obj" | "stl"): void;
   onCapture(): void;
   onImport(): void;
+  onOpenAssets(): void;
   onExportJson(): void;
 }) {
   const {
@@ -74,7 +76,7 @@ export function TopToolbar({
             <button type="button" onClick={() => { onExportJson(); setExportOpen(false); }}><b>JSON</b><span>{t("toolbar.exportSource")}</span></button>
           </div>}
         </div>
-        <button type="button" className="more-button" title={t("toolbar.openProject")}><FolderOpen /></button>
+        <button type="button" className="more-button" title={t("toolbar.openAssets")} onClick={onOpenAssets}><Archive /></button>
         <button type="button" className="language-button" onClick={() => setLocale(locale === "zh" ? "en" : "zh")} title={t("toolbar.language")} aria-label={t("toolbar.language")}><Globe /><span>{t("toolbar.languageShort")}</span></button>
       </div>
     </header>

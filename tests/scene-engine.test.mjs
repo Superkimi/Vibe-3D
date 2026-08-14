@@ -11,6 +11,8 @@ import { getGeometryDefinition, getNodeDefinition } from "../lib/node-definition
 import { buildSceneNodeReferences } from "../lib/scene-references.ts";
 import { diffScenes } from "../lib/scene-diff.ts";
 import { evaluateSceneQuality, repairScene } from "../lib/scene-quality.ts";
+import { analyzeScene, buildSceneWorkflowPlan, optimizeSceneGeometry, preflightSceneWorkflow, repairScenePipeline } from "../lib/scene-workflow.ts";
+import { createSceneAssetRecord, filterSceneAssets, parseSceneAssets, upsertSceneAsset } from "../lib/scene-assets.ts";
 
 test("starter scene satisfies the public VibeScene contract", () => {
   const scene = sceneSchema.parse(createStarterScene());
@@ -152,4 +154,46 @@ test("quality gate reports issues and applies safe automatic repairs", () => {
   const repairedReport = evaluateSceneQuality(repaired.scene);
   assert.equal(repairedReport.issues.some((item) => item.code === "transparent-material"), false);
   assert.equal(repaired.scene.nodes.some((node) => node.type === "light"), true);
+});
+
+test("typed workflow plans account for every operation and pass preflight", () => {
+  const scene = createStarterScene();
+  const operations = [{
+    op: "patch_node",
+    nodeId: "body",
+    patch: { transform: { scale: [1, 0.85, 1] } },
+  }];
+  const plan = buildSceneWorkflowPlan(scene, operations, [], "en");
+  const preflight = preflightSceneWorkflow(plan, scene, operations);
+  assert.equal(plan.steps[0].kind, "inspect");
+  assert.equal(plan.steps.some((step) => step.kind === "edit"), true);
+  assert.equal(plan.requiresConfirmation, true);
+  assert.equal(preflight.ok, true);
+  assert.equal(preflight.issues.length, 0);
+});
+
+test("scene pipeline analyzes, repairs, and reduces primitive geometry safely", () => {
+  const scene = createStarterScene();
+  const analysis = analyzeScene(scene);
+  const optimized = optimizeSceneGeometry(scene, Math.floor(analysis.estimatedTriangles * 0.45));
+  assert.ok(optimized.operations.length > 0);
+  assert.ok(analyzeScene(optimized.scene).estimatedTriangles < analysis.estimatedTriangles);
+  assert.ok(optimized.scene.nodes.some((node) => node.type === "mesh" && node.geometry.kind === "torus" && node.geometry.tubularSegments < 72));
+
+  const draft = structuredClone(scene);
+  draft.nodes = draft.nodes.filter((node) => node.type !== "light");
+  const repaired = repairScenePipeline(draft);
+  assert.equal(repaired.operations.some((operation) => operation.op === "add_node"), true);
+  assert.equal(repaired.scene.nodes.some((node) => node.type === "light"), true);
+});
+
+test("asset records preserve versions and reject malformed persisted entries", () => {
+  const scene = createStarterScene();
+  const quality = evaluateSceneQuality(scene);
+  const first = createSceneAssetRecord(scene, { version: 1, locale: "zh", quality, prompt: "创建产品模型", model: "test-model", createdAt: "2026-01-01T00:00:00.000Z" });
+  const second = createSceneAssetRecord(scene, { version: 2, locale: "en", quality, prompt: "Refine the silhouette", createdAt: "2026-01-02T00:00:00.000Z" });
+  const records = upsertSceneAsset(upsertSceneAsset([], first), second);
+  assert.deepEqual(records.map((record) => record.version), [2, 1]);
+  assert.equal(filterSceneAssets(records, "silhouette").length, 1);
+  assert.equal(parseSceneAssets([...records, { invalid: true }]).length, 2);
 });
