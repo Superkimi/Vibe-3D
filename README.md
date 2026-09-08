@@ -11,8 +11,10 @@ Vibe 3D is a schema-first, AI-native 3D modeling studio for the browser. A scene
 - Numeric transforms, geometry parameters, PBR materials, and lighting controls
 - AI conversation using OpenAI-compatible or Anthropic Messages endpoints
 - Strict AI operation schema with integrity checks, preview/confirm, undo, redo, and local autosave
+- AI candidate scene preview with changed-node highlights before confirmation
 - Typed AI workflow plans with preflight checks, cancelable runs, repair, and primitive geometry optimization
 - Restorable local asset versions with quality metadata and a dedicated pipeline workspace
+- Neutral studio material-preview environment for inspecting PBR response
 - Stable `node:<id>` references, explainable scene diffs, quality scoring, safe auto-repair, and deterministic bilingual prompt benchmarks
 - Live `VibeScene` JSON editor with round-trip validation
 - GLB, OBJ, STL, editable JSON, and PNG export

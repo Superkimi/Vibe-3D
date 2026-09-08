@@ -40,11 +40,22 @@ type PendingChange = {
   prompt: string;
 };
 
+export type AiPreviewChange = {
+  scene: VibeScene;
+  nodeIds: string[];
+  baseUpdatedAt: string;
+};
+
 function qualityLabel(status: PendingChange["quality"]["status"], t: (key: string, values?: Record<string, string | number>) => string) {
   return t(`ai.quality.${status}`);
 }
 
-export function AiPanel({ config, onOpenSettings, onSaveVersion }: { config: ModelConfig; onOpenSettings(): void; onSaveVersion?: (scene: VibeScene, prompt: string) => void }) {
+export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange }: {
+  config: ModelConfig;
+  onOpenSettings(): void;
+  onSaveVersion?: (scene: VibeScene, prompt: string) => void;
+  onPreviewChange?: (preview: AiPreviewChange | null) => void;
+}) {
   const { scene, selectedNodeId, updateScene, t, locale } = useEditor();
   const starterPrompts = [
     t("ai.promptSpeaker"),
@@ -63,6 +74,11 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion }: { config: Mod
   const controllerRef = useRef<AbortController | null>(null);
   const configured = Boolean(config.model && (config.apiKey || config.baseUrl.includes("localhost")));
   const recent = useMemo(() => messages.filter((message) => message.id !== "welcome").slice(-12), [messages]);
+
+  useEffect(() => () => {
+    controllerRef.current?.abort();
+    onPreviewChange?.(null);
+  }, [onPreviewChange]);
 
   useEffect(() => {
     setMessages((current) => current.length === 1 && current[0]?.id === "welcome"
@@ -119,6 +135,11 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion }: { config: Mod
         preflight,
         prompt,
       });
+      onPreviewChange?.({
+        scene: previewScene,
+        nodeIds: diff.entries.filter((entry) => entry.kind !== "removed").map((entry) => entry.nodeId),
+        baseUpdatedAt: scene.updatedAt,
+      });
       setMessages((current) => [...current, {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -152,6 +173,7 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion }: { config: Mod
   }
 
   function discardPreview() {
+    onPreviewChange?.(null);
     setPending(null);
     setMessages((current) => [...current, {
       id: crypto.randomUUID(),
@@ -163,6 +185,7 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion }: { config: Mod
   function applyPreview() {
     if (!pending) return;
     if (scene.updatedAt !== pending.baseUpdatedAt) {
+      onPreviewChange?.(null);
       setPending(null);
       setMessages((current) => [...current, {
         id: crypto.randomUUID(),
@@ -173,6 +196,7 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion }: { config: Mod
       return;
     }
     if (pending.quality.status === "fail") return;
+    onPreviewChange?.(null);
     updateScene(pending.scene);
     onSaveVersion?.(pending.scene, pending.prompt);
     setPending(null);

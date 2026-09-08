@@ -18,10 +18,12 @@ export interface EditorContextValue {
   canRedo: boolean;
   gridVisible: boolean;
   wireframeAll: boolean;
+  materialPreview: boolean;
   selectNode(id?: string): void;
   setTransformMode(mode: TransformMode): void;
   setGridVisible(value: boolean): void;
   setWireframeAll(value: boolean): void;
+  setMaterialPreview(value: boolean): void;
   updateScene(scene: VibeScene): void;
   patchScene(patch: Partial<VibeScene>): void;
   patchNode(id: string, patch: Record<string, unknown>): void;

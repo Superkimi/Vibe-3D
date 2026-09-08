@@ -26,6 +26,12 @@ const MODEL_STORAGE_KEY = "vibe-3d-model-config";
 const SESSION_KEY = "vibe-3d-session-api-key";
 const ASSET_STORAGE_KEY = "vibe-3d-assets-v1";
 
+type AiPreviewState = {
+  scene: VibeScene;
+  nodeIds: string[];
+  baseUpdatedAt: string;
+};
+
 export function ModelingStudio() {
   const [scene, setScene] = useState<VibeScene>(() => createStarterScene());
   const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
@@ -34,6 +40,8 @@ export function ModelingStudio() {
   const [rightPanel, setRightPanel] = useState<"design" | "ai" | "pipeline">("ai");
   const [gridVisible, setGridVisible] = useState(true);
   const [wireframeAll, setWireframeAll] = useState(false);
+  const [materialPreview, setMaterialPreview] = useState(true);
+  const [aiPreview, setAiPreview] = useState<AiPreviewState | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [assetsOpen, setAssetsOpen] = useState(false);
@@ -97,6 +105,7 @@ export function ModelingStudio() {
   }, [assets]);
 
   const commit = useCallback((updater: (current: VibeScene) => VibeScene) => {
+    setAiPreview(null);
     setScene((current) => {
       const next = normalizeScene(updater(structuredClone(current)));
       pastRef.current.push(current);
@@ -108,6 +117,7 @@ export function ModelingStudio() {
   }, []);
 
   const undo = useCallback(() => {
+    setAiPreview(null);
     setScene((current) => {
       const previous = pastRef.current.pop();
       if (!previous) return current;
@@ -118,6 +128,7 @@ export function ModelingStudio() {
   }, []);
 
   const redo = useCallback(() => {
+    setAiPreview(null);
     setScene((current) => {
       const next = futureRef.current.pop();
       if (!next) return current;
@@ -172,10 +183,12 @@ export function ModelingStudio() {
     canRedo: historyState.canRedo,
     gridVisible,
     wireframeAll,
+    materialPreview,
     selectNode: setSelectedNodeId,
     setTransformMode,
     setGridVisible,
     setWireframeAll,
+    setMaterialPreview,
     updateScene: (next) => commit(() => next),
     patchScene: (patch) => commit((current) => ({ ...current, ...patch })),
     patchNode,
@@ -211,9 +224,13 @@ export function ModelingStudio() {
     undo,
     redo,
   }), [
-    commit, deleteSelected, gridVisible, historyState, locale, patchNode, redo, scene,
+    commit, deleteSelected, gridVisible, historyState, locale, materialPreview, patchNode, redo, scene,
     selectedNode, selectedNodeId, t, transformMode, undo, wireframeAll,
   ]);
+
+  const handleAiPreviewChange = useCallback((preview: AiPreviewState | null) => {
+    setAiPreview(preview);
+  }, []);
 
   function saveModelConfig(config: ModelConfig) {
     setModelConfig(config);
@@ -275,12 +292,13 @@ export function ModelingStudio() {
           onImport={() => importRef.current?.click()}
           onOpenAssets={() => setAssetsOpen(true)}
           onExportJson={() => downloadBlob(new Blob([JSON.stringify(scene, null, 2)], { type: "application/json" }), `${safeFilename(scene.name)}.vibe3d.json`)}
+          previewActive={Boolean(aiPreview)}
         />
         <input ref={importRef} type="file" accept=".json,.vibe3d" hidden onChange={(event) => void importScene(event.target.files?.[0])} />
         <div className="studio-body">
           <SceneTree />
           <section className="canvas-column">
-            <SceneViewport ref={viewportRef} />
+            <SceneViewport ref={viewportRef} preview={aiPreview} />
             {codeOpen && <CodePanel onClose={() => setCodeOpen(false)} />}
           </section>
           <aside className="right-panel">
@@ -289,7 +307,11 @@ export function ModelingStudio() {
               <button type="button" className={rightPanel === "ai" ? "is-active" : ""} onClick={() => setRightPanel("ai")}><MagicWand /> {t("panel.ai")}</button>
               <button type="button" className={rightPanel === "pipeline" ? "is-active" : ""} onClick={() => setRightPanel("pipeline")}><MagicWand /> {t("panel.pipeline")}</button>
             </div>
-            {rightPanel === "design" ? <InspectorPanel /> : rightPanel === "pipeline" ? <PipelinePanel /> : <AiPanel config={modelConfig} onOpenSettings={() => setSettingsOpen(true)} onSaveVersion={saveSceneVersionFor} />}
+            {rightPanel === "design" ? <InspectorPanel /> : rightPanel === "pipeline" ? <PipelinePanel /> : <AiPanel config={modelConfig}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onSaveVersion={saveSceneVersionFor}
+              onPreviewChange={handleAiPreviewChange}
+            />}
           </aside>
         </div>
       </main>
