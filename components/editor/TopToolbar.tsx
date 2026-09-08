@@ -15,6 +15,7 @@ import {
   GridFour,
   Hand,
   Selection,
+  SunDim,
   UploadSimple,
   VectorThree,
 } from "@phosphor-icons/react";
@@ -30,6 +31,7 @@ export function TopToolbar({
   onImport,
   onOpenAssets,
   onExportJson,
+  previewActive = false,
 }: {
   saveState: string;
   codeOpen: boolean;
@@ -39,10 +41,11 @@ export function TopToolbar({
   onImport(): void;
   onOpenAssets(): void;
   onExportJson(): void;
+  previewActive?: boolean;
 }) {
   const {
     scene, patchScene, transformMode, setTransformMode, canUndo, canRedo, undo, redo,
-    gridVisible, setGridVisible, wireframeAll, setWireframeAll, locale, setLocale, t,
+    gridVisible, setGridVisible, wireframeAll, setWireframeAll, materialPreview, setMaterialPreview, locale, setLocale, t,
   } = useEditor();
   const [exportOpen, setExportOpen] = useState(false);
   return (
@@ -64,16 +67,17 @@ export function TopToolbar({
       <div className="toolbar-actions">
         <button type="button" className={gridVisible ? "is-active" : ""} onClick={() => setGridVisible(!gridVisible)} title={t("toolbar.grid")}><GridFour /></button>
         <button type="button" className={wireframeAll ? "is-active" : ""} onClick={() => setWireframeAll(!wireframeAll)} title={t("toolbar.wireframe")}><DotsThree /></button>
+        <button type="button" className={materialPreview ? "is-active" : ""} onClick={() => setMaterialPreview(!materialPreview)} title={t("toolbar.materialPreview")} aria-label={t("toolbar.materialPreview")}><SunDim /></button>
         <button type="button" className={codeOpen ? "is-active" : ""} onClick={onToggleCode}><BracketsCurly /> {t("toolbar.schema")}</button>
-        <button type="button" onClick={onCapture}><Camera /> {t("toolbar.screenshot")}</button>
+        <button type="button" onClick={onCapture} disabled={previewActive}><Camera /> {t("toolbar.screenshot")}</button>
         <button type="button" onClick={onImport} title={t("toolbar.import")}><UploadSimple /></button>
         <div className="export-menu">
-          <button type="button" className="export-trigger" onClick={() => setExportOpen((value) => !value)}><DownloadSimple /> {t("toolbar.export")} <CaretDown /></button>
+          <button type="button" className="export-trigger" onClick={() => setExportOpen((value) => !value)} disabled={previewActive}><DownloadSimple /> {t("toolbar.export")} <CaretDown /></button>
           {exportOpen && <div className="export-popover">
-            <button type="button" onClick={() => { onExport("glb"); setExportOpen(false); }}><b>GLB</b><span>{t("toolbar.exportWeb")}</span></button>
-            <button type="button" onClick={() => { onExport("obj"); setExportOpen(false); }}><b>OBJ</b><span>{t("toolbar.exportExchange")}</span></button>
-            <button type="button" onClick={() => { onExport("stl"); setExportOpen(false); }}><b>STL</b><span>{t("toolbar.exportPrint")}</span></button>
-            <button type="button" onClick={() => { onExportJson(); setExportOpen(false); }}><b>JSON</b><span>{t("toolbar.exportSource")}</span></button>
+            <button type="button" disabled={previewActive} onClick={() => { onExport("glb"); setExportOpen(false); }}><b>GLB</b><span>{t("toolbar.exportWeb")}</span></button>
+            <button type="button" disabled={previewActive} onClick={() => { onExport("obj"); setExportOpen(false); }}><b>OBJ</b><span>{t("toolbar.exportExchange")}</span></button>
+            <button type="button" disabled={previewActive} onClick={() => { onExport("stl"); setExportOpen(false); }}><b>STL</b><span>{t("toolbar.exportPrint")}</span></button>
+            <button type="button" disabled={previewActive} onClick={() => { onExportJson(); setExportOpen(false); }}><b>JSON</b><span>{t("toolbar.exportSource")}</span></button>
           </div>}
         </div>
         <button type="button" className="more-button" title={t("toolbar.openAssets")} onClick={onOpenAssets}><Archive /></button>

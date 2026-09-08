@@ -3,16 +3,18 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
 } from "react";
-import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
 import {
   GizmoHelper,
   GizmoViewport,
   Grid,
   OrbitControls,
+  Outlines,
   RoundedBox,
   TransformControls,
 } from "@react-three/drei";
@@ -20,6 +22,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { OBJExporter } from "three/addons/exporters/OBJExporter.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { SceneNode, Transform, VibeScene } from "@/lib/scene-schema";
 import { downloadBlob, safeFilename } from "@/lib/download";
 import { useEditor } from "./EditorContext";
@@ -28,6 +31,12 @@ export interface SceneViewportHandle {
   exportModel(format: "glb" | "obj" | "stl"): Promise<void>;
   capturePng(): void;
 }
+
+export type SceneViewportPreview = {
+  scene: VibeScene;
+  nodeIds: readonly string[];
+  baseUpdatedAt: string;
+};
 
 const rad = (degrees: number) => THREE.MathUtils.degToRad(degrees);
 const deg = (radians: number) => Math.round(THREE.MathUtils.radToDeg(radians) * 1000) / 1000;
@@ -55,21 +64,60 @@ function Geometry({ node }: { node: Extract<SceneNode, { type: "mesh" }> }) {
   }
 }
 
-function MeshContent({ node, wireframeAll }: { node: Extract<SceneNode, { type: "mesh" }>; wireframeAll: boolean }) {
+function MeshContent({ node, wireframeAll, highlighted }: {
+  node: Extract<SceneNode, { type: "mesh" }>;
+  wireframeAll: boolean;
+  highlighted: boolean;
+}) {
   const material = node.material;
+  const displayMaterial = highlighted
+    ? { ...material, emissive: "#c7b5ff", emissiveIntensity: Math.max(material.emissiveIntensity, 0.42) }
+    : material;
   if (node.geometry.kind === "box" && node.geometry.bevel > 0) {
     return (
       <RoundedBox args={[node.geometry.width, node.geometry.height, node.geometry.depth]} radius={Math.min(node.geometry.bevel, Math.min(node.geometry.width, node.geometry.height, node.geometry.depth) / 2)} smoothness={4} castShadow={node.castShadow} receiveShadow={node.receiveShadow}>
-        <meshPhysicalMaterial {...material} wireframe={wireframeAll || material.wireframe} />
+        <meshPhysicalMaterial {...displayMaterial} wireframe={wireframeAll || material.wireframe} />
+        {highlighted && <Outlines color="#d7c7ff" thickness={0.045} screenspace />}
       </RoundedBox>
     );
   }
   return (
     <mesh castShadow={node.castShadow} receiveShadow={node.receiveShadow}>
       <Geometry node={node} />
-      <meshPhysicalMaterial {...material} wireframe={wireframeAll || material.wireframe} />
+      <meshPhysicalMaterial {...displayMaterial} wireframe={wireframeAll || material.wireframe} />
+      {highlighted && <Outlines color="#d7c7ff" thickness={0.045} screenspace />}
     </mesh>
   );
+}
+
+function NeutralMaterialEnvironment({ enabled }: { enabled: boolean }) {
+  const { gl, scene } = useThree();
+  const environmentTarget = useMemo(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const room = new RoomEnvironment();
+    const target = pmrem.fromScene(room);
+    room.dispose();
+    pmrem.dispose();
+    return target;
+  }, [gl]);
+  const environment = environmentTarget.texture;
+
+  useEffect(() => {
+    const previousEnvironment = scene.environment;
+    const previousIntensity = scene.environmentIntensity;
+    setSceneEnvironment(scene, enabled ? environment : null, enabled ? 0.72 : 1);
+    return () => {
+      setSceneEnvironment(scene, previousEnvironment, previousIntensity);
+    };
+  }, [enabled, environment, scene]);
+
+  useEffect(() => () => environmentTarget.dispose(), [environmentTarget]);
+  return null;
+}
+
+function setSceneEnvironment(scene: THREE.Scene, environment: THREE.Texture | null, intensity: number) {
+  scene.environment = environment;
+  scene.environmentIntensity = intensity;
 }
 
 function LightContent({ node }: { node: Extract<SceneNode, { type: "light" }> }) {
@@ -88,6 +136,8 @@ function NodeObject({
   onSelect,
   onTransform,
   mode,
+  previewNodeIds,
+  interactive,
 }: {
   node: SceneNode;
   scene: VibeScene;
@@ -96,10 +146,13 @@ function NodeObject({
   onSelect(id: string): void;
   onTransform(id: string, transform: Transform): void;
   mode: "translate" | "rotate" | "scale";
+  previewNodeIds: ReadonlySet<string>;
+  interactive: boolean;
 }) {
   const objectRef = useRef<THREE.Group>(null);
   const children = scene.nodes.filter((item) => item.parentId === node.id);
   const transform = node.transform;
+  const highlighted = previewNodeIds.has(node.id) && node.type === "mesh";
   const object = (
     <group
       ref={objectRef}
@@ -109,12 +162,12 @@ function NodeObject({
       position={transform.position}
       rotation={[rad(transform.rotation[0]), rad(transform.rotation[1]), rad(transform.rotation[2])]}
       scale={transform.scale}
-      onClick={(event: ThreeEvent<MouseEvent>) => {
+      onClick={interactive ? (event: ThreeEvent<MouseEvent>) => {
         event.stopPropagation();
         onSelect(node.id);
-      }}
+      } : undefined}
     >
-      {node.type === "mesh" && <MeshContent node={node} wireframeAll={wireframeAll} />}
+      {node.type === "mesh" && <MeshContent node={node} wireframeAll={wireframeAll} highlighted={highlighted} />}
       {node.type === "light" && <LightContent node={node} />}
       {children.map((child) => (
         <NodeObject
@@ -126,12 +179,14 @@ function NodeObject({
           onSelect={onSelect}
           onTransform={onTransform}
           mode={mode}
+          previewNodeIds={previewNodeIds}
+          interactive={interactive}
         />
       ))}
     </group>
   );
 
-  if (node.id !== selectedNodeId || node.locked) return object;
+  if (!interactive || node.id !== selectedNodeId || node.locked) return object;
   return (
     <TransformControls
       mode={mode}
@@ -151,20 +206,31 @@ function NodeObject({
   );
 }
 
-function SceneContent({ rootRef }: { rootRef: React.RefObject<THREE.Group | null> }) {
+function SceneContent({
+  rootRef,
+  scene,
+  previewNodeIds,
+  interactive,
+}: {
+  rootRef: React.RefObject<THREE.Group | null>;
+  scene: VibeScene;
+  previewNodeIds: ReadonlySet<string>;
+  interactive: boolean;
+}) {
   const {
-    scene,
     selectedNodeId,
     selectNode,
     transformMode,
     updateNodeTransform,
     gridVisible,
     wireframeAll,
+    materialPreview,
   } = useEditor();
   const roots = useMemo(() => scene.nodes.filter((node) => !node.parentId), [scene.nodes]);
   return (
     <>
       <color attach="background" args={[scene.background]} />
+      <NeutralMaterialEnvironment enabled={materialPreview} />
       <ambientLight intensity={0.42} color="#f4efff" />
       {scene.environment !== "none" && (
         <>
@@ -184,6 +250,8 @@ function SceneContent({ rootRef }: { rootRef: React.RefObject<THREE.Group | null
             onSelect={selectNode}
             onTransform={updateNodeTransform}
             mode={transformMode}
+            previewNodeIds={previewNodeIds}
+            interactive={interactive}
           />
         ))}
       </group>
@@ -207,12 +275,15 @@ function SceneContent({ rootRef }: { rootRef: React.RefObject<THREE.Group | null
   );
 }
 
-export const SceneViewport = forwardRef<SceneViewportHandle>(function SceneViewport(_, ref) {
+export const SceneViewport = forwardRef<SceneViewportHandle, { preview?: SceneViewportPreview | null }>(function SceneViewport({ preview }, ref) {
   const { scene, selectNode, t } = useEditor();
   const rootRef = useRef<THREE.Group>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const displayScene = preview?.scene ?? scene;
+  const previewNodeIds = useMemo(() => new Set(preview?.nodeIds ?? []), [preview?.nodeIds]);
 
   const exportModel = useCallback(async (format: "glb" | "obj" | "stl") => {
+    if (preview) return;
     const root = rootRef.current;
     if (!root) return;
     const filename = safeFilename(scene.name);
@@ -236,11 +307,12 @@ export const SceneViewport = forwardRef<SceneViewportHandle>(function SceneViewp
       maxTextureSize: 2048,
     });
     downloadBlob(new Blob([output as ArrayBuffer], { type: "model/gltf-binary" }), `${filename}.glb`);
-  }, [scene.name]);
+  }, [preview, scene.name]);
 
   useImperativeHandle(ref, () => ({
     exportModel,
     capturePng() {
+      if (preview) return;
       const dataUrl = canvasRef.current?.toDataURL("image/png");
       if (!dataUrl) return;
       const anchor = document.createElement("a");
@@ -248,7 +320,7 @@ export const SceneViewport = forwardRef<SceneViewportHandle>(function SceneViewp
       anchor.download = `${safeFilename(scene.name)}.png`;
       anchor.click();
     },
-  }), [exportModel, scene.name]);
+  }), [exportModel, preview, scene.name]);
 
   return (
     <div className="viewport-shell" onPointerDown={(event) => {
@@ -266,10 +338,16 @@ export const SceneViewport = forwardRef<SceneViewportHandle>(function SceneViewp
         }}
         onPointerMissed={() => selectNode(undefined)}
       >
-        <SceneContent rootRef={rootRef} />
+        <SceneContent rootRef={rootRef} scene={displayScene} previewNodeIds={previewNodeIds} interactive={!preview} />
       </Canvas>
+      {preview && (
+        <div className="viewport-preview-banner" role="status">
+          <strong>{t("viewport.previewBadge")}</strong>
+          <span>{t("viewport.previewCopy")}</span>
+        </div>
+      )}
       <div className="viewport-status">
-        <span>{t("viewport.perspective")}</span><i /> <span>{t("viewport.meshes", { count: scene.nodes.filter((node) => node.type === "mesh" && node.visible).length })}</span>
+        <span>{t("viewport.perspective")}</span><i /> <span>{t("viewport.meshes", { count: displayScene.nodes.filter((node) => node.type === "mesh" && node.visible).length })}</span>
       </div>
     </div>
   );
