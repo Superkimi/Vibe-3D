@@ -6,7 +6,7 @@ import { isLocale, translate } from "../lib/i18n.ts";
 const root = new URL("../", import.meta.url);
 
 test("studio exposes manual, AI, schema, preview, and export surfaces", async () => {
-  const [studio, toolbar, ai, viewport, code, definitions, quality, diff, benchmarks, workflow, assets, pipeline] = await Promise.all([
+  const [studio, toolbar, ai, viewport, code, definitions, quality, diff, benchmarks, workflow, assets, pipeline, buildInfo, storage] = await Promise.all([
     readFile(new URL("components/editor/ModelingStudio.tsx", root), "utf8"),
     readFile(new URL("components/editor/TopToolbar.tsx", root), "utf8"),
     readFile(new URL("components/editor/AiPanel.tsx", root), "utf8"),
@@ -19,11 +19,13 @@ test("studio exposes manual, AI, schema, preview, and export surfaces", async ()
     readFile(new URL("lib/scene-workflow.ts", root), "utf8"),
     readFile(new URL("lib/scene-assets.ts", root), "utf8"),
     readFile(new URL("components/editor/PipelinePanel.tsx", root), "utf8"),
+    readFile(new URL("lib/build-info.ts", root), "utf8"),
+    readFile(new URL("lib/project-storage.ts", root), "utf8"),
   ]);
   assert.match(studio, /<SceneTree \/>/);
   assert.match(studio, /<InspectorPanel \/>/);
   assert.match(studio, /<AiPanel /);
-  assert.match(studio, /<PipelinePanel \/>/);
+  assert.match(studio, /<PipelinePanel /);
   assert.match(studio, /<AssetLibraryPanel /);
   assert.match(studio, /<CodePanel /);
   assert.match(toolbar, /"glb" \| "obj" \| "stl"/);
@@ -48,6 +50,9 @@ test("studio exposes manual, AI, schema, preview, and export surfaces", async ()
   assert.match(workflow, /optimizeSceneGeometry/);
   assert.match(assets, /sceneAssetRecordSchema/);
   assert.match(pipeline, /repairScenePipeline/);
+  assert.match(buildInfo, /NEXT_PUBLIC_VIBE_3D_BUILD_VERSION/);
+  assert.match(studio, /vibe-3d\/project-backup\/1/);
+  assert.match(storage, /listProjectScenes/);
 });
 
 test("landing page contains product-specific copy and no starter preview marker", async () => {
@@ -68,7 +73,8 @@ test("landing page contains product-specific copy and no starter preview marker"
 test("AI proxy does not return or log raw credentials", async () => {
   const route = await readFile(new URL("app/api/ai/route.ts", root), "utf8");
   assert.match(route, /safeBaseUrl/);
-  assert.match(route, /AbortSignal\.timeout/);
+  assert.match(route, /requestAbortSignal/);
+  assert.match(route, /90000/);
   assert.doesNotMatch(route, /console\.(?:log|error).*apiKey/);
   assert.doesNotMatch(route, /Response\.json\([^)]*apiKey/);
   assert.match(route, /repairScene/);

@@ -7,17 +7,17 @@ Vibe 3D is a schema-first, AI-native 3D modeling studio for the browser. A scene
 ## Product surface
 
 - Browser-native Three.js viewport with orbit and transform controls
-- Scene directory with hierarchy, search, visibility, locking, and primitive creation
-- Numeric transforms, geometry parameters, PBR materials, and lighting controls
+- Scene directory with hierarchy, Shift multi-select, grouping/ungrouping, search, visibility, locking, primitive and manual light creation
+- Numeric transforms, geometry parameters, PBR materials, reparenting with world-pose preservation, focus/reset/orthographic views, transform snapping, and lighting controls
 - AI conversation using OpenAI-compatible or Anthropic Messages endpoints
 - Strict AI operation schema with integrity checks, preview/confirm, undo, redo, and local autosave
 - AI candidate scene preview with changed-node highlights before confirmation
 - Typed AI workflow plans with preflight checks, cancelable runs, repair, and primitive geometry optimization
-- Restorable local asset versions with quality metadata and a dedicated pipeline workspace
-- Neutral studio material-preview environment for inspecting PBR response
+- Restorable local asset versions with quality metadata, IndexedDB persistence with localStorage fallback, project switching/new/save-as, search, thumbnails, and full project backup/restore
+- Neutral studio material-preview environment with adjustable intensity for inspecting PBR response
 - Stable `node:<id>` references, explainable scene diffs, quality scoring, safe auto-repair, and deterministic bilingual prompt benchmarks
 - Live `VibeScene` JSON editor with round-trip validation
-- GLB, OBJ, STL, editable JSON, and PNG export
+- GLB (meters), OBJ (scene units), STL (millimeters), editable JSON, and opaque/transparent PNG export
 - Responsive product launch page with Open Graph artwork
 
 ## Architecture
@@ -70,6 +70,7 @@ The local app runs at `http://localhost:3000`.
 - `lib/scene-operations.ts`: deterministic scene mutation and integrity gates
 - `lib/scene-workflow.ts`: typed workflow plans, preflight, repair, and geometry optimization
 - `lib/scene-assets.ts`: versioned local asset records and safe persistence parsing
+- `lib/project-storage.ts`: IndexedDB project/snapshot persistence and legacy localStorage migration
 - `lib/ai-system-prompt.ts`: modeling discipline and structured response contract
 - `app/api/ai/route.ts`: provider adapter and response validation
 - `components/editor/SceneViewport.tsx`: Three.js renderer and exporters

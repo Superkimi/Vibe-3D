@@ -26,6 +26,13 @@ const primitiveLabelKeys = {
   plane: "scene.plane",
 } as const;
 
+const lightLabelKeys = {
+  ambient: "scene.ambientLight",
+  directional: "scene.directionalLight",
+  point: "scene.pointLight",
+  spot: "scene.spotLight",
+} as const;
+
 function NodeIcon({ node }: { node: SceneNode }) {
   if (node.type === "group") return <Folder weight="fill" />;
   if (node.type === "light") return <Lightbulb weight="fill" />;
@@ -33,7 +40,7 @@ function NodeIcon({ node }: { node: SceneNode }) {
 }
 
 export function SceneTree() {
-  const { scene, selectedNodeId, selectNode, patchNode, addPrimitive, addGroup, t } = useEditor();
+  const { scene, selectedNodeIds, selectNode, patchNode, addPrimitive, addGroup, addLight, t } = useEditor();
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set(scene.nodes.filter((node) => node.type === "group").map((node) => node.id)));
   const [addOpen, setAddOpen] = useState(false);
@@ -47,13 +54,24 @@ export function SceneTree() {
   function renderNode(node: SceneNode, depth = 0): React.ReactNode {
     const children = visibleNodes.filter((item) => item.parentId === node.id);
     const hasChildren = children.length > 0;
-    const open = expanded.has(node.id) || Boolean(query);
+    const selectedDescendant = selectedNodeIds.length ? scene.nodes.some((item) => {
+      if (!selectedNodeIds.includes(item.id)) return false;
+      let parentId = item.parentId;
+      const visited = new Set<string>();
+      while (parentId && !visited.has(parentId)) {
+        if (parentId === node.id) return true;
+        visited.add(parentId);
+        parentId = scene.nodes.find((candidate) => candidate.id === parentId)?.parentId ?? null;
+      }
+      return false;
+    }) : false;
+    const open = expanded.has(node.id) || Boolean(query) || selectedDescendant;
     return (
       <div key={node.id}>
         <div
-          className={`tree-row ${selectedNodeId === node.id ? "is-selected" : ""}`}
+          className={`tree-row ${selectedNodeIds.includes(node.id) ? "is-selected" : ""}`}
           style={{ paddingLeft: 10 + depth * 15 }}
-          onClick={() => selectNode(node.id)}
+          onClick={(event) => selectNode(node.id, event.shiftKey)}
         >
           <button
             className="tree-caret"
@@ -105,6 +123,11 @@ export function SceneTree() {
           {(Object.keys(primitiveLabelKeys) as Array<keyof typeof primitiveLabelKeys>).map((kind) => (
             <button type="button" key={kind} onClick={() => { addPrimitive(kind); setAddOpen(false); }}>
               <Cube /> {t(primitiveLabelKeys[kind])}
+            </button>
+          ))}
+          {(Object.keys(lightLabelKeys) as Array<keyof typeof lightLabelKeys>).map((kind) => (
+            <button type="button" key={kind} onClick={() => { addLight(kind); setAddOpen(false); }}>
+              <Lightbulb /> {t(lightLabelKeys[kind])}
             </button>
           ))}
         </div>

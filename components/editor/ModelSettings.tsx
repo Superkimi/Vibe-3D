@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Eye, EyeSlash, X } from "@phosphor-icons/react";
 import { useEditor } from "./EditorContext";
 
@@ -34,6 +34,11 @@ export function ModelSettings({ config, onSave, onClose }: { config: ModelConfig
   const { t } = useEditor();
   const [draft, setDraft] = useState(config);
   const [showKey, setShowKey] = useState(false);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="model-settings-title">

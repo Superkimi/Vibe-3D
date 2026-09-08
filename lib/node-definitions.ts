@@ -1,4 +1,15 @@
 import type { GeometrySpec, SceneNode } from "./scene-schema.ts";
+import {
+  BoxGeometry,
+  CapsuleGeometry,
+  ConeGeometry,
+  CylinderGeometry,
+  ExtrudeGeometry,
+  PlaneGeometry,
+  Shape,
+  SphereGeometry,
+  TorusGeometry,
+} from "three";
 
 export type GeometryFieldDefinition = {
   key: string;
@@ -140,21 +151,52 @@ export function getGeometryDefinition(kind: GeometrySpec["kind"]): GeometryDefin
 }
 
 export function estimateGeometryTriangles(geometry: GeometrySpec): number {
+  const cacheKey = JSON.stringify(geometry);
+  const cached = geometryTriangleCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const generated = createGeometryForStats(geometry);
+  const triangles = (generated.index?.count ?? generated.attributes.position.count) / 3;
+  generated.dispose();
+  geometryTriangleCache.set(cacheKey, triangles);
+  if (geometryTriangleCache.size > 500) geometryTriangleCache.delete(geometryTriangleCache.keys().next().value as string);
+  return triangles;
+}
+
+const geometryTriangleCache = new Map<string, number>();
+
+function createGeometryForStats(geometry: GeometrySpec) {
   switch (geometry.kind) {
-    case "box":
-      return 12;
+    case "box": {
+      if (geometry.bevel <= 0) return new BoxGeometry(geometry.width, geometry.height, geometry.depth);
+      const epsilon = 0.00001;
+      const radius = Math.min(geometry.bevel, geometry.width / 2, geometry.height / 2, geometry.depth / 2) - epsilon;
+      const shape = new Shape();
+      shape.absarc(epsilon, epsilon, epsilon, -Math.PI / 2, -Math.PI, true);
+      shape.absarc(epsilon, geometry.height - radius * 2, epsilon, Math.PI, Math.PI / 2, true);
+      shape.absarc(geometry.width - radius * 2, geometry.height - radius * 2, epsilon, Math.PI / 2, 0, true);
+      shape.absarc(geometry.width - radius * 2, epsilon, epsilon, 0, -Math.PI / 2, true);
+      return new ExtrudeGeometry(shape, {
+        depth: geometry.depth - radius * 2,
+        bevelEnabled: true,
+        bevelSegments: 8,
+        steps: 1,
+        bevelSize: radius - epsilon,
+        bevelThickness: radius,
+        curveSegments: 4,
+      });
+    }
     case "sphere":
-      return geometry.widthSegments * geometry.heightSegments * 2;
+      return new SphereGeometry(geometry.radius, geometry.widthSegments, geometry.heightSegments);
     case "cylinder":
-      return geometry.radialSegments * (geometry.openEnded ? 2 : 4);
+      return new CylinderGeometry(geometry.radiusTop, geometry.radiusBottom, geometry.height, geometry.radialSegments, 1, geometry.openEnded);
     case "cone":
-      return geometry.radialSegments * 4;
+      return new ConeGeometry(geometry.radius, geometry.height, geometry.radialSegments);
     case "torus":
-      return geometry.radialSegments * geometry.tubularSegments * 2;
+      return new TorusGeometry(geometry.radius, geometry.tube, geometry.radialSegments, geometry.tubularSegments);
     case "capsule":
-      return geometry.radialSegments * (geometry.capSegments * 2 + 2);
+      return new CapsuleGeometry(geometry.radius, geometry.length, geometry.capSegments, geometry.radialSegments);
     case "plane":
-      return 2;
+      return new PlaneGeometry(geometry.width, geometry.height);
   }
 }
 
