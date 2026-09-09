@@ -46,6 +46,7 @@ operation 只能是：
 - {"op":"patch_node","nodeId":id,"patch":{只放需要变化的字段}}
 - {"op":"delete_node","nodeId":id}
 - {"op":"duplicate_node","nodeId":id,"newId":id,"name":"新名称"}
+- {"op":"reparent_node","nodeId":id,"parentId":组节点 id 或 null}（保持世界姿态）
 
 从零创建完整概念时可使用 replace_scene。迭代修改时优先 patch_node、add_node 和 delete_node。
 `.trim();

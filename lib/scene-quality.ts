@@ -8,6 +8,7 @@ import { sceneSchema } from "./scene-schema.ts";
 import { applySceneOperations, assertSceneIntegrity } from "./scene-operations.ts";
 import { estimateGeometryTriangles } from "./node-definitions.ts";
 import { nodeRef } from "./scene-references.ts";
+import { Euler, Matrix4, Quaternion, Vector3 } from "three";
 
 type Vec3 = [number, number, number];
 type Bounds = { min: Vec3; max: Vec3 };
@@ -18,18 +19,6 @@ const TRIANGLE_ERROR_LIMIT = 300_000;
 
 function issue(code: string, severity: "error" | "warning" | "info", nodeRefs: string[] = []) {
   return { code, severity, nodeRefs };
-}
-
-function add(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-
-function multiply(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
-}
-
-function absolute(value: Vec3): Vec3 {
-  return [Math.abs(value[0]), Math.abs(value[1]), Math.abs(value[2])];
 }
 
 function isAncestor(nodeId: string, possibleAncestorId: string | null, byId: Map<string, SceneNode>) {
@@ -44,21 +33,43 @@ function isAncestor(nodeId: string, possibleAncestorId: string | null, byId: Map
   return false;
 }
 
-function worldTransform(node: SceneNode, byId: Map<string, SceneNode>) {
-  let position = [...node.transform.position] as Vec3;
-  let scale = [...node.transform.scale] as Vec3;
-  const visited = new Set([node.id]);
-  let parentId = node.parentId;
-  while (parentId) {
-    if (visited.has(parentId)) break;
-    visited.add(parentId);
-    const parent = byId.get(parentId);
-    if (!parent) break;
-    position = add(parent.transform.position, multiply(position, parent.transform.scale));
-    scale = multiply(scale, absolute(parent.transform.scale));
-    parentId = parent.parentId;
+function isEffectivelyVisible(node: SceneNode, byId: Map<string, SceneNode>) {
+  const visited = new Set<string>();
+  let current: SceneNode | undefined = node;
+  while (current && !visited.has(current.id)) {
+    if (!current.visible) return false;
+    visited.add(current.id);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
   }
-  return { position, scale };
+  return true;
+}
+
+function localMatrix(node: SceneNode) {
+  const position = new Vector3(...node.transform.position);
+  const rotation = new Euler(
+    THREE_DEG_TO_RAD * node.transform.rotation[0],
+    THREE_DEG_TO_RAD * node.transform.rotation[1],
+    THREE_DEG_TO_RAD * node.transform.rotation[2],
+  );
+  const scale = new Vector3(...node.transform.scale);
+  return new Matrix4().compose(position, new Quaternion().setFromEuler(rotation), scale);
+}
+
+const THREE_DEG_TO_RAD = Math.PI / 180;
+
+function worldMatrix(node: SceneNode, byId: Map<string, SceneNode>, cache: Map<string, Matrix4>, visiting = new Set<string>()): Matrix4 {
+  const cached = cache.get(node.id);
+  if (cached) return cached.clone();
+  if (visiting.has(node.id)) return localMatrix(node);
+  visiting.add(node.id);
+  const matrix = localMatrix(node);
+  if (node.parentId) {
+    const parent = byId.get(node.parentId);
+    if (parent) matrix.premultiply(worldMatrix(parent, byId, cache, visiting));
+  }
+  visiting.delete(node.id);
+  cache.set(node.id, matrix.clone());
+  return matrix;
 }
 
 function localHalfExtents(node: Extract<SceneNode, { type: "mesh" }>): Vec3 {
@@ -83,13 +94,22 @@ function localHalfExtents(node: Extract<SceneNode, { type: "mesh" }>): Vec3 {
   }
 }
 
-function boundsForNode(node: Extract<SceneNode, { type: "mesh" }>, byId: Map<string, SceneNode>): Bounds {
-  const { position, scale } = worldTransform(node, byId);
-  const extents = multiply(localHalfExtents(node), absolute(scale));
-  return {
-    min: [position[0] - extents[0], position[1] - extents[1], position[2] - extents[2]],
-    max: [position[0] + extents[0], position[1] + extents[1], position[2] + extents[2]],
-  };
+function boundsForNode(node: Extract<SceneNode, { type: "mesh" }>, byId: Map<string, SceneNode>, matrixCache: Map<string, Matrix4>): Bounds {
+  const matrix = worldMatrix(node, byId, matrixCache);
+  const extents = localHalfExtents(node);
+  const min = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY] as Vec3;
+  const max = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY] as Vec3;
+  const corner = new Vector3();
+  for (const x of [-extents[0], extents[0]]) {
+    for (const y of [-extents[1], extents[1]]) {
+      for (const z of [-extents[2], extents[2]]) {
+        corner.set(x, y, z).applyMatrix4(matrix);
+        min[0] = Math.min(min[0], corner.x); min[1] = Math.min(min[1], corner.y); min[2] = Math.min(min[2], corner.z);
+        max[0] = Math.max(max[0], corner.x); max[1] = Math.max(max[1], corner.y); max[2] = Math.max(max[2], corner.z);
+      }
+    }
+  }
+  return { min, max };
 }
 
 function overlapRatio(a: Bounds, b: Bounds): number {
@@ -138,7 +158,8 @@ export function evaluateSceneQuality(input: unknown): SceneQualityReport {
   const meshNodes = scene.nodes.filter((node): node is Extract<SceneNode, { type: "mesh" }> => node.type === "mesh");
   const lightNodes = scene.nodes.filter((node) => node.type === "light");
   const byId = new Map(scene.nodes.map((node) => [node.id, node]));
-  const triangleEstimate = meshNodes.reduce((total, node) => total + estimateGeometryTriangles(node.geometry), 0);
+  const visibleMeshNodes = meshNodes.filter((node) => isEffectivelyVisible(node, byId));
+  const triangleEstimate = visibleMeshNodes.reduce((total, node) => total + estimateGeometryTriangles(node.geometry), 0);
 
   if (scene.nodes.length > NODE_WARNING_LIMIT) issues.push(issue("node-budget", "warning"));
   if (triangleEstimate > TRIANGLE_ERROR_LIMIT) issues.push(issue("complexity-budget", "error"));
@@ -161,11 +182,12 @@ export function evaluateSceneQuality(input: unknown): SceneQualityReport {
     }
   }
 
-  const bounds = new Map(meshNodes.map((node) => [node.id, boundsForNode(node, byId)]));
-  for (let leftIndex = 0; leftIndex < meshNodes.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < meshNodes.length; rightIndex += 1) {
-      const left = meshNodes[leftIndex];
-      const right = meshNodes[rightIndex];
+  const worldMatrices = new Map<string, Matrix4>();
+  const bounds = new Map(visibleMeshNodes.map((node) => [node.id, boundsForNode(node, byId, worldMatrices)]));
+  for (let leftIndex = 0; leftIndex < visibleMeshNodes.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < visibleMeshNodes.length; rightIndex += 1) {
+      const left = visibleMeshNodes[leftIndex];
+      const right = visibleMeshNodes[rightIndex];
       if (isAncestor(left.id, right.parentId, byId) || isAncestor(right.id, left.parentId, byId)) continue;
       const ratio = overlapRatio(bounds.get(left.id)!, bounds.get(right.id)!);
       if (ratio < 0.3) continue;

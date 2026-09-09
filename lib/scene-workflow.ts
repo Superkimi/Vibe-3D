@@ -48,6 +48,7 @@ function operationRefs(operation: SceneOperation): string[] {
     case "patch_node":
     case "delete_node":
     case "duplicate_node":
+    case "reparent_node":
       return [nodeRef(operation.nodeId)];
     case "replace_scene":
     case "patch_scene":
@@ -106,7 +107,7 @@ export function buildSceneWorkflowPlan(
 ): SceneWorkflowPlan {
   const baseOperations = operations;
   const generated = baseOperations.filter((operation) => operation.op === "add_node" || operation.op === "duplicate_node" || operation.op === "replace_scene");
-  const edited = baseOperations.filter((operation) => ["patch_node", "patch_scene", "delete_node"].includes(operation.op));
+  const edited = baseOperations.filter((operation) => ["patch_node", "patch_scene", "delete_node", "reparent_node"].includes(operation.op));
   const steps: SceneWorkflowStep[] = [{
     id: "step-inspect",
     kind: "inspect",
@@ -160,11 +161,22 @@ export function preflightSceneWorkflow(
 
 export function analyzeScene(scene: VibeScene): SceneAnalysis {
   const meshes = scene.nodes.filter((node) => node.type === "mesh");
+  const byId = new Map(scene.nodes.map((node) => [node.id, node]));
+  const visibleMeshes = meshes.filter((node) => {
+    const visited = new Set<string>();
+    let current: VibeScene["nodes"][number] | undefined = node;
+    while (current && !visited.has(current.id)) {
+      if (!current.visible) return false;
+      visited.add(current.id);
+      current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+    return true;
+  });
   return {
     nodeCount: scene.nodes.length,
-    meshCount: meshes.length,
+    meshCount: visibleMeshes.length,
     lightCount: scene.nodes.filter((node) => node.type === "light").length,
-    estimatedTriangles: meshes.reduce((total, node) => total + estimateGeometryTriangles(node.geometry), 0),
+    estimatedTriangles: visibleMeshes.reduce((total, node) => total + estimateGeometryTriangles(node.geometry), 0),
     quality: evaluateSceneQuality(scene),
   };
 }

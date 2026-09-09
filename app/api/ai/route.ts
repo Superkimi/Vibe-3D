@@ -37,6 +37,8 @@ function localizeErrorMessage(message: string, locale: "zh" | "en") {
     "模型没有返回内容": "The model returned no content.",
     "请先配置 API Key": "Configure an API key before sending a request.",
     "AI 请求失败": "The AI request failed.",
+    "AI 请求已取消": "The AI request was cancelled.",
+    "AI 请求超时": "The AI request timed out.",
   };
   if (known[message]) return known[message];
   return message.replace(/^模型请求失败（([^）]+)）：/, "Model request failed ($1): ");
@@ -59,7 +61,17 @@ function extractJson(value: string) {
   return aiResponseSchema.parse(JSON.parse(trimmed.slice(start, end + 1)));
 }
 
-async function callOpenAiCompatible(input: z.infer<typeof requestSchema>) {
+function requestAbortSignal(signal: AbortSignal) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new DOMException("AI request timed out", "TimeoutError")), 90000);
+  const abort = () => controller.abort(signal.reason);
+  controller.signal.addEventListener("abort", () => clearTimeout(timeout), { once: true });
+  if (signal.aborted) abort();
+  else signal.addEventListener("abort", abort, { once: true });
+  return controller.signal;
+}
+
+async function callOpenAiCompatible(input: z.infer<typeof requestSchema>, signal: AbortSignal) {
   const baseUrl = safeBaseUrl(input.config.baseUrl);
   const endpoint = baseUrl.endsWith("/chat/completions") ? baseUrl : `${baseUrl}/chat/completions`;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -77,7 +89,7 @@ async function callOpenAiCompatible(input: z.infer<typeof requestSchema>) {
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(90000),
+    signal: requestAbortSignal(signal),
   });
   if (!response.ok) {
     const detail = await response.text();
@@ -89,7 +101,7 @@ async function callOpenAiCompatible(input: z.infer<typeof requestSchema>) {
   return extractJson(content);
 }
 
-async function callAnthropic(input: z.infer<typeof requestSchema>) {
+async function callAnthropic(input: z.infer<typeof requestSchema>, signal: AbortSignal) {
   const baseUrl = safeBaseUrl(input.config.baseUrl);
   const endpoint = baseUrl.endsWith("/messages") ? baseUrl : `${baseUrl}/messages`;
   const response = await fetch(endpoint, {
@@ -106,7 +118,7 @@ async function callAnthropic(input: z.infer<typeof requestSchema>) {
       system: `${VIBE_3D_SYSTEM_PROMPT}\n\n${outputLanguageHint[input.locale]}\n\n当前场景上下文：\n${input.context}`,
       messages: input.messages,
     }),
-    signal: AbortSignal.timeout(90000),
+    signal: requestAbortSignal(signal),
   });
   if (!response.ok) {
     const detail = await response.text();
@@ -127,8 +139,8 @@ export async function POST(request: Request) {
       return Response.json({ error: localizeErrorMessage("请先配置 API Key", locale) }, { status: 400 });
     }
     const result = input.config.provider === "anthropic"
-      ? await callAnthropic(input)
-      : await callOpenAiCompatible(input);
+      ? await callAnthropic(input, request.signal)
+      : await callOpenAiCompatible(input, request.signal);
     const candidate = applySceneOperations(input.scene, result.operations);
     const repair = repairScene(candidate);
     const quality = evaluateSceneQuality(repair.scene);
@@ -141,6 +153,12 @@ export async function POST(request: Request) {
     }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI 请求失败";
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return Response.json({ error: localizeErrorMessage("AI 请求已取消", locale) }, { status: 499 });
+    }
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      return Response.json({ error: localizeErrorMessage("AI 请求超时", locale) }, { status: 504 });
+    }
     return Response.json({ error: localizeErrorMessage(message, locale) }, { status: 422 });
   }
 }

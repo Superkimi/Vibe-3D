@@ -233,6 +233,7 @@ export const sceneOperationSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("patch_node"), nodeId: id, patch: nodePatchSchema }).strict(),
   z.object({ op: z.literal("delete_node"), nodeId: id }).strict(),
   z.object({ op: z.literal("duplicate_node"), nodeId: id, newId: id, name: z.string().min(1).max(120) }).strict(),
+  z.object({ op: z.literal("reparent_node"), nodeId: id, parentId: id.nullable() }).strict(),
 ]);
 
 export const aiResponseSchema = z.object({

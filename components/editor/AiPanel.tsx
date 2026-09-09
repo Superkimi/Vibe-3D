@@ -16,6 +16,7 @@ import { applySceneOperations } from "@/lib/scene-operations";
 import { diffScenes, type SceneDiff } from "@/lib/scene-diff";
 import { evaluateSceneQuality, repairScene } from "@/lib/scene-quality";
 import { buildSceneWorkflowPlan, preflightSceneWorkflow, type WorkflowPreflightResult } from "@/lib/scene-workflow";
+import { nodeIdFromRef } from "@/lib/scene-references";
 import { useEditor } from "./EditorContext";
 import type { ModelConfig } from "./ModelSettings";
 
@@ -29,7 +30,7 @@ interface ChatMessage {
 }
 
 type PendingChange = {
-  baseUpdatedAt: string;
+  baseRevision: number;
   scene: VibeScene;
   diff: SceneDiff;
   quality: ReturnType<typeof evaluateSceneQuality>;
@@ -43,7 +44,7 @@ type PendingChange = {
 export type AiPreviewChange = {
   scene: VibeScene;
   nodeIds: string[];
-  baseUpdatedAt: string;
+  baseRevision: number;
 };
 
 function qualityLabel(status: PendingChange["quality"]["status"], t: (key: string, values?: Record<string, string | number>) => string) {
@@ -56,7 +57,7 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange
   onSaveVersion?: (scene: VibeScene, prompt: string) => void;
   onPreviewChange?: (preview: AiPreviewChange | null) => void;
 }) {
-  const { scene, selectedNodeId, updateScene, t, locale } = useEditor();
+  const { scene, sceneRevision, getSceneRevision, selectedNodeId, updateScene, selectNode, t, locale } = useEditor();
   const starterPrompts = [
     t("ai.promptSpeaker"),
     t("ai.promptCompact"),
@@ -72,8 +73,27 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange
   const [running, setRunning] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
+  const revisionRef = useRef(sceneRevision);
   const configured = Boolean(config.model && (config.apiKey || config.baseUrl.includes("localhost")));
   const recent = useMemo(() => messages.filter((message) => message.id !== "welcome").slice(-12), [messages]);
+
+  useEffect(() => {
+    revisionRef.current = sceneRevision;
+  }, [sceneRevision]);
+
+  useEffect(() => {
+    if (!pending || pending.baseRevision === sceneRevision) return;
+    // A committed edit invalidates the candidate immediately. Keeping the
+    // stale preview visible would make an old AI result look actionable.
+    setPending(null);
+    onPreviewChange?.(null);
+    setMessages((current) => [...current, {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: t("ai.previewStale"),
+      error: true,
+    }]);
+  }, [onPreviewChange, pending, sceneRevision, t]);
 
   useEffect(() => () => {
     controllerRef.current?.abort();
@@ -89,10 +109,21 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange
   async function send(content = draft) {
     const prompt = content.trim();
     if (!prompt || running) return;
+    if (!configured) {
+      setMessages((current) => [...current, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: t("ai.setupRequired"),
+        error: true,
+      }]);
+      onOpenSettings();
+      return;
+    }
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: prompt };
     setMessages((current) => [...current, userMessage]);
     setDraft("");
     setRunning(true);
+    const baseRevision = getSceneRevision();
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
@@ -124,8 +155,28 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange
       const quality = evaluateSceneQuality(previewScene);
       quality.repaired = allRepairOperations.length > 0;
       const diff = diffScenes(scene, previewScene);
+      if (getSceneRevision() !== baseRevision || revisionRef.current !== baseRevision) {
+        onPreviewChange?.(null);
+        setMessages((current) => [...current, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: t("ai.previewStale"),
+          error: true,
+        }]);
+        return;
+      }
+      if (diff.isEmpty) {
+        onPreviewChange?.(null);
+        setPending(null);
+        setMessages((current) => [...current, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: t("editor.noChanges"),
+        }]);
+        return;
+      }
       setPending({
-        baseUpdatedAt: scene.updatedAt,
+        baseRevision,
         scene: previewScene,
         diff,
         quality,
@@ -138,7 +189,7 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange
       onPreviewChange?.({
         scene: previewScene,
         nodeIds: diff.entries.filter((entry) => entry.kind !== "removed").map((entry) => entry.nodeId),
-        baseUpdatedAt: scene.updatedAt,
+        baseRevision,
       });
       setMessages((current) => [...current, {
         id: crypto.randomUUID(),
@@ -184,7 +235,7 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange
 
   function applyPreview() {
     if (!pending) return;
-    if (scene.updatedAt !== pending.baseUpdatedAt) {
+    if (getSceneRevision() !== pending.baseRevision || sceneRevision !== pending.baseRevision) {
       onPreviewChange?.(null);
       setPending(null);
       setMessages((current) => [...current, {
@@ -196,8 +247,17 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange
       return;
     }
     if (pending.quality.status === "fail") return;
+    const result = updateScene(pending.scene);
+    if (!result.ok) {
+      setMessages((current) => [...current, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: result.error,
+        error: true,
+      }]);
+      return;
+    }
     onPreviewChange?.(null);
-    updateScene(pending.scene);
     onSaveVersion?.(pending.scene, pending.prompt);
     setPending(null);
     setMessages((current) => [...current, {
@@ -276,7 +336,16 @@ export function AiPanel({ config, onOpenSettings, onSaveVersion, onPreviewChange
           {pending.quality.issues.length > 0 && (
             <div className="quality-issues">
               <strong><WarningCircle /> {t("ai.qualityIssues", { count: pending.quality.issues.length })}</strong>
-              {pending.quality.issues.slice(0, 4).map((item) => <span key={`${item.code}-${item.nodeRefs.join("-")}`}>{t(`ai.qualityIssue.${item.code}`)}</span>)}
+              {pending.quality.issues.slice(0, 4).map((item) => (
+                <div className="quality-issue-row" key={`${item.code}-${item.nodeRefs.join("-")}`}>
+                  <span>{t(`ai.qualityIssue.${item.code}`)}</span>
+                  {item.nodeRefs.map((ref) => {
+                    const nodeId = nodeIdFromRef(ref);
+                    const node = nodeId ? scene.nodes.find((candidate) => candidate.id === nodeId) : undefined;
+                    return nodeId && node ? <button type="button" key={ref} onClick={() => selectNode(nodeId)}>{node.name}</button> : null;
+                  })}
+                </div>
+              ))}
             </div>
           )}
           {pending.repairCount > 0 && <div className="repair-note"><CheckCircle weight="fill" /> {t("ai.autoRepair", { count: pending.repairCount })}</div>}
