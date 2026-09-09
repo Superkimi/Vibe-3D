@@ -26,6 +26,7 @@ import { useEditor } from "./EditorContext";
 
 export function TopToolbar({
   saveState,
+  saveStatus = "saved",
   codeOpen,
   onToggleCode,
   onExport,
@@ -40,6 +41,7 @@ export function TopToolbar({
   previewActive = false,
 }: {
   saveState: string;
+  saveStatus?: "saved" | "saving" | "error";
   codeOpen: boolean;
   onToggleCode(): void;
   onExport(format: "glb" | "obj" | "stl"): void | Promise<void>;
@@ -82,7 +84,7 @@ export function TopToolbar({
         <Link href="/" aria-label={t("toolbar.home")}><span><Cube weight="fill" /></span><b>Vibe 3D</b></Link>
         <i />
         <input value={scene.name} onChange={(event) => patchScene({ name: event.target.value || scene.name })} aria-label={t("toolbar.sceneName")} />
-        <small>{saveState}</small>
+        <small className={`save-state is-${saveStatus}`} aria-live="polite">{saveState}</small>
         <small className="build-badge" title={`${BUILD_VERSION} · ${BUILD_TIME}`}>build {BUILD_VERSION}</small>
       </div>
       <div className="tool-cluster" aria-label={t("toolbar.transformTools")}>

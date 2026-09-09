@@ -64,6 +64,8 @@ test("landing page contains product-specific copy and no starter preview marker"
   ]);
   assert.match(page, /像聊天一样塑造三维/);
   assert.match(page, /VibeScene JSON/);
+  assert.match(page, /hero-proof/);
+  assert.match(page, /检查与优化/);
   assert.match(layout, /Vibe 3D/);
   assert.doesNotMatch(page, /codex-preview|SkeletonPreview/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
@@ -102,6 +104,7 @@ test("editor exposes persisted Chinese and English localization", async () => {
   assert.match(studio, /LOCALE_STORAGE_KEY/);
   assert.match(studio, /setLocale/);
   assert.match(toolbar, /language-button/);
+  assert.match(toolbar, /save-state/);
   assert.match(tree, /scene\.directory/);
   assert.match(inspector, /inspector\.material/);
   assert.match(ai, /locale/);

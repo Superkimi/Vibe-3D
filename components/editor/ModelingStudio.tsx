@@ -676,6 +676,7 @@ export function ModelingStudio() {
       <main className={`studio-shell ${codeOpen ? "has-code" : ""}`}>
         <TopToolbar
           saveState={t(saveState)}
+          saveStatus={saveState === "toolbar.saveFailed" ? "error" : saveState === "toolbar.saving" ? "saving" : "saved"}
           codeOpen={codeOpen}
           onToggleCode={() => setCodeOpen((value) => !value)}
           onExport={(format) => viewportRef.current?.exportModel(format) ?? Promise.resolve()}
